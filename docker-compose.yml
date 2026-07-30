@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: seep_postgres
+    restart: always
+    environment:
+      POSTGRES_DB: seep
+      POSTGRES_USER: seep_admin
+      POSTGRES_PASSWORD: seep_secure_pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U seep_admin -d seep"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mongodb:
+    image: mongo:6.0
+    container_name: seep_mongodb
+    restart: always
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: seep_admin
+      MONGO_INITDB_ROOT_PASSWORD: seep_secure_pass
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodata:/data/db
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7.0-alpine
+    container_name: seep_redis
+    restart: always
+    command: redis-server --requirepass seep_secure_pass
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "seep_secure_pass", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:
+  mongodata:
+  redisdata:

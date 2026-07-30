@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SEEP - Smart Examination & Evaluation Platform</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Vanilla CSS Stylesheet -->
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+    <!-- Background Gradients -->
+    <div class="bg-glow bg-glow-1"></div>
+    <div class="bg-glow bg-glow-2"></div>
+
+    <!-- Navigation Header -->
+    <header class="main-header glass-panel">
+        <div class="logo-area">
+            <i class="fa-solid fa-graduation-cap logo-icon"></i>
+            <span class="logo-text">SEEP <small>Platform</small></span>
+        </div>
+        <div class="header-right-area" id="header-user-profile" style="display: none;">
+            <div class="user-badge">
+                <i class="fa-solid fa-user-circle"></i>
+                <span id="header-user-name">Loading...</span>
+                <span class="role-pill" id="header-user-role">Student</span>
+            </div>
+            <button class="btn btn-secondary btn-icon" id="logout-btn" title="Sign Out">
+                <i class="fa-solid fa-right-from-bracket"></i>
+            </button>
+        </div>
+    </header>
+
+    <main class="app-container">
+        <!-- 1. LOGIN SCREEN -->
+        <section id="view-login" class="view-section active">
+            <div class="login-card glass-panel">
+                <div class="login-header">
+                    <h2>Welcome to SEEP</h2>
+                    <p>Smart Examination & Evaluation Automation Platform</p>
+                </div>
+                <form id="login-form">
+                    <div class="form-group">
+                        <label for="login-email">Portal Username / Email</label>
+                        <div class="input-wrapper">
+                            <i class="fa-solid fa-envelope input-icon"></i>
+                            <input type="email" id="login-email" required placeholder="name@seep.platform">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="login-password">Password</label>
+                        <div class="input-wrapper">
+                            <i class="fa-solid fa-lock input-icon"></i>
+                            <input type="password" id="login-password" required placeholder="••••••••">
+                        </div>
+                    </div>
+                    <div id="login-error-msg" class="error-banner" style="display: none;"></div>
+                    <button type="submit" class="btn btn-primary w-100">
+                        <span>Sign In</span>
+                        <i class="fa-solid fa-arrow-right"></i>
+                    </button>
+                </form>
+                <div class="login-quick-links">
+                    <p>Quick Access Accounts:</p>
+                    <div class="demo-acc-grid">
+                        <button onclick="fillDemoCredentials('student@seep.platform')" class="demo-btn">
+                            <i class="fa-solid fa-user-graduate"></i> Student
+                        </button>
+                        <button onclick="fillDemoCredentials('teacher@seep.platform')" class="demo-btn">
+                            <i class="fa-solid fa-chalkboard-user"></i> Teacher
+                        </button>
+                        <button onclick="fillDemoCredentials('admin@seep.platform')" class="demo-btn">
+                            <i class="fa-solid fa-user-shield"></i> Admin
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 2. STUDENT DASHBOARD -->
+        <section id="view-student-dashboard" class="view-section">
+            <div class="dashboard-grid">
+                <!-- Left: Available Exams -->
+                <div class="dashboard-col glass-panel">
+                    <div class="section-title">
+                        <h3><i class="fa-solid fa-calendar-days"></i> Active & Upcoming Assessments</h3>
+                    </div>
+                    <div id="student-exams-list" class="exams-container">
+                        <!-- Dynamic exam cards injected here -->
+                    </div>
+                </div>
+                <!-- Right: Grades & Results -->
+                <div class="dashboard-col glass-panel">
+                    <div class="section-title">
+                        <h3><i class="fa-solid fa-award"></i> Completed Transcripts</h3>
+                    </div>
+                    <div id="student-results-list" class="results-container">
+                        <!-- Dynamic result rows injected here -->
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 3. ACTIVE EXAM CONSOLE (EXAM PLAYER) -->
+        <section id="view-exam-console" class="view-section">
+            <div class="exam-layout">
+                <!-- Left Side: Interactive Exam Panel -->
+                <div class="exam-workspace-panel glass-panel">
+                    <div class="exam-workspace-header">
+                        <span class="subject-badge" id="exam-subject-tag">Biology 101</span>
+                        <h2 id="exam-title-display">Cellular Biology & Mitosis Midterm</h2>
+                    </div>
+                    
+                    <div class="question-container">
+                        <div class="question-number-tag">Question <span id="current-question-index">1</span></div>
+                        <div class="question-text" id="question-text-display">Explain the mitotic spindle function during cell division.</div>
+                        
+                        <!-- Answers Form Injections -->
+                        <div class="answer-workspace" id="answer-workspace-area">
+                            <!-- Injected dynamically: textarea or MCQ options radio lists -->
+                        </div>
+                    </div>
+
+                    <div class="exam-navigation-controls">
+                        <button class="btn btn-secondary" id="btn-prev-question">
+                            <i class="fa-solid fa-chevron-left"></i> Previous Question
+                        </button>
+                        <button class="btn btn-accent" id="btn-flag-question">
+                            <i class="fa-solid fa-bookmark"></i> Flag Question
+                        </button>
+                        <button class="btn btn-secondary" id="btn-next-question">
+                            Next Question <i class="fa-solid fa-chevron-right"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Right Side: Proctor Widget & Palette Grid -->
+                <div class="exam-sidebar-panel">
+                    <!-- Dynamic Invigilation Module -->
+                    <div class="proctoring-widget glass-panel">
+                        <h4><i class="fa-solid fa-shield-halved text-accent"></i> Exam Security Monitor</h4>
+                        <div class="proctor-feed">
+                            <div class="proctor-stats">
+                                <div class="stat-row">
+                                    <span>Sync Status:</span>
+                                    <span class="text-success" id="websocket-sync-indicator"><i class="fa-solid fa-circle-check"></i> Connected</span>
+                                </div>
+                                <div class="stat-row">
+                                    <span>Time Left:</span>
+                                    <span class="text-accent timer-text" id="exam-timer-display">00:00:00</span>
+                                </div>
+                                <div class="stat-row">
+                                    <span>Security Alerts:</span>
+                                    <span class="text-danger font-bold" id="proctor-warning-count">0 / 3</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Question Palette -->
+                    <div class="palette-widget glass-panel">
+                        <h4>Question Navigator</h4>
+                        <div class="palette-grid" id="exam-question-palette">
+                            <!-- Buttons like [1] [2] [3] dynamically generated -->
+                        </div>
+                        <div class="palette-legend">
+                            <div class="legend-item"><span class="legend-dot current"></span>Current</div>
+                            <div class="legend-item"><span class="legend-dot answered"></span>Answered</div>
+                            <div class="legend-item"><span class="legend-dot flagged"></span>Flagged</div>
+                            <div class="legend-item"><span class="legend-dot unread"></span>Unread</div>
+                        </div>
+                        <button class="btn btn-danger w-100 btn-submit-exam" id="btn-finish-exam">
+                            <i class="fa-solid fa-cloud-arrow-up"></i> Submit & Grade Exam
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 5. TEACHER DASHBOARD -->
+        <section id="view-teacher-dashboard" class="view-section">
+            <div class="teacher-layout">
+                <!-- Teacher nav tabs -->
+                <div class="teacher-tabs glass-panel">
+                    <button class="teacher-tab active" data-tab="profile" onclick="switchTeacherTab('profile')">
+                        <i class="fa-solid fa-user-tie"></i> My Profile
+                    </button>
+                    <button class="teacher-tab" data-tab="questions" onclick="switchTeacherTab('questions')">
+                        <i class="fa-solid fa-circle-question"></i> Add Questions
+                    </button>
+                    <button class="teacher-tab" data-tab="exams" onclick="switchTeacherTab('exams')">
+                        <i class="fa-solid fa-book"></i> My Exams
+                    </button>
+                    <button class="teacher-tab" data-tab="results" onclick="switchTeacherTab('results')">
+                        <i class="fa-solid fa-chart-bar"></i> Student Results
+                    </button>
+                </div>
+
+                <!-- Tab: Teacher Profile -->
+                <div id="teacher-tab-profile" class="teacher-tab-panel active glass-panel">
+                    <div class="section-title">
+                        <h3><i class="fa-solid fa-id-card"></i> Teacher Profile</h3>
+                    </div>
+                    <form id="teacher-profile-form" class="teacher-form">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="teacher-name">Teacher Name</label>
+                                <input type="text" id="teacher-name" required placeholder="Dr. Jane Smith">
+                            </div>
+                            <div class="form-group">
+                                <label for="teacher-email">Email</label>
+                                <input type="email" id="teacher-email" readonly>
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="teacher-department">Department</label>
+                                <input type="text" id="teacher-department" required placeholder="Computer Science">
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fa-solid fa-save"></i> Save Profile
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Tab: Create Exam & Add MCQ Questions -->
+                <div id="teacher-tab-questions" class="teacher-tab-panel glass-panel">
+                    <div class="section-title">
+                        <h3><i class="fa-solid fa-plus-circle"></i> Create Exam & Add MCQ Questions</h3>
+                        <p class="section-subtitle">Each question has 4 options (A–D). Select the correct answer.</p>
+                    </div>
+
+                    <form id="teacher-create-exam-form" class="teacher-form exam-create-form">
+                        <h4 class="form-section-heading">Step 1 — Exam Details</h4>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="exam-title-input">Exam Title</label>
+                                <input type="text" id="exam-title-input" required placeholder="Mid-Term Examination">
+                            </div>
+                            <div class="form-group">
+                                <label for="exam-subject-input">Subject</label>
+                                <input type="text" id="exam-subject-input" required placeholder="Data Structures">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="exam-dept-input">Department</label>
+                                <input type="text" id="exam-dept-input" placeholder="Uses profile department if empty">
+                            </div>
+                            <div class="form-group">
+                                <label for="exam-duration-input">Duration (minutes)</label>
+                                <input type="number" id="exam-duration-input" value="30" min="5" max="180">
+                            </div>
+                            <div class="form-group">
+                                <label for="exam-marks-input">Marks per Question</label>
+                                <input type="number" id="exam-marks-input" value="1" min="0.5" step="0.5">
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-secondary">
+                            <i class="fa-solid fa-file-circle-plus"></i> Create Exam (Draft)
+                        </button>
+                    </form>
+
+                    <div id="question-builder-section" style="display: none;">
+                        <hr class="form-divider">
+                        <h4 class="form-section-heading">Step 2 — Add MCQ Question</h4>
+                        <p class="active-exam-label">Active exam: <strong id="active-exam-label">—</strong></p>
+
+                        <form id="teacher-add-question-form" class="teacher-form">
+                            <div class="form-group">
+                                <label for="question-text-input">Question Text</label>
+                                <textarea id="question-text-input" rows="3" required placeholder="Enter your multiple choice question here..."></textarea>
+                            </div>
+
+                            <div class="options-grid">
+                                <div class="form-group">
+                                    <label for="option-a">Option A</label>
+                                    <input type="text" id="option-a" required placeholder="First option">
+                                </div>
+                                <div class="form-group">
+                                    <label for="option-b">Option B</label>
+                                    <input type="text" id="option-b" required placeholder="Second option">
+                                </div>
+                                <div class="form-group">
+                                    <label for="option-c">Option C</label>
+                                    <input type="text" id="option-c" required placeholder="Third option">
+                                </div>
+                                <div class="form-group">
+                                    <label for="option-d">Option D</label>
+                                    <input type="text" id="option-d" required placeholder="Fourth option">
+                                </div>
+                            </div>
+
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="correct-answer-select">Correct Answer</label>
+                                    <select id="correct-answer-select" required>
+                                        <option value="">Select correct option</option>
+                                        <option value="0">A</option>
+                                        <option value="1">B</option>
+                                        <option value="2">C</option>
+                                        <option value="3">D</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="question-marks-input">Marks for this Question</label>
+                                    <input type="number" id="question-marks-input" value="1" min="0.5" step="0.5">
+                                </div>
+                            </div>
+
+                            <button type="submit" class="btn btn-primary">
+                                <i class="fa-solid fa-plus"></i> Add Question
+                            </button>
+                        </form>
+
+                        <div class="added-questions-section">
+                            <h4 class="form-section-heading">Questions Added (<span id="added-question-count">0</span>)</h4>
+                            <div id="added-questions-list" class="added-questions-list"></div>
+                            <button class="btn btn-success w-100" id="btn-publish-exam" style="margin-top: 1rem;">
+                                <i class="fa-solid fa-bullhorn"></i> Publish Exam for Students
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tab: My Exams -->
+                <div id="teacher-tab-exams" class="teacher-tab-panel glass-panel">
+                    <div class="section-title">
+                        <h3><i class="fa-solid fa-list-check"></i> My Exams</h3>
+                    </div>
+                    <div id="teacher-exams-list" class="exams-container"></div>
+                </div>
+
+                <!-- Tab: Student Results -->
+                <div id="teacher-tab-results" class="teacher-tab-panel glass-panel">
+                    <div class="section-title">
+                        <h3><i class="fa-solid fa-file-signature"></i> Student MCQ Evaluation Results</h3>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Student</th>
+                                    <th>Exam / Subject</th>
+                                    <th>Score</th>
+                                    <th>Correct</th>
+                                    <th>Grade</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="teacher-submissions-tbody"></tbody>
+                        </table>
+                    </div>
+
+                    <div id="teacher-result-detail-panel" class="result-detail-panel" style="display: none;">
+                        <div class="section-title">
+                            <h3><i class="fa-solid fa-magnifying-glass"></i> Answer Review</h3>
+                        </div>
+                        <h4 id="result-detail-student">Student</h4>
+                        <h5 id="result-detail-exam">Exam</h5>
+                        <div id="result-detail-questions" class="result-detail-questions"></div>
+                        <button class="btn btn-secondary" onclick="document.getElementById('teacher-result-detail-panel').style.display='none'">Close</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 6. ADMIN SYSTEM DASHBOARD -->
+        <section id="view-admin-dashboard" class="view-section">
+            <div class="admin-grid">
+                <!-- System Diagnostics (Metrics cards) -->
+                <div class="admin-stats-row">
+                    <div class="stat-card glass-panel">
+                        <i class="fa-solid fa-server admin-stat-icon text-accent"></i>
+                        <div class="stat-info">
+                            <span class="stat-label">System Health</span>
+                            <span class="stat-value" id="admin-stat-health">Healthy</span>
+                        </div>
+                    </div>
+                    <div class="stat-card glass-panel">
+                        <i class="fa-solid fa-microchip admin-stat-icon text-info"></i>
+                        <div class="stat-info">
+                            <span class="stat-label">CPU Utilization</span>
+                            <span class="stat-value" id="admin-stat-cpu">18.5%</span>
+                        </div>
+                    </div>
+                    <div class="stat-card glass-panel">
+                        <i class="fa-solid fa-memory admin-stat-icon text-primary"></i>
+                        <div class="stat-info">
+                            <span class="stat-label">RAM Usage</span>
+                            <span class="stat-value" id="admin-stat-ram">45.1%</span>
+                        </div>
+                    </div>
+                    <div class="stat-card glass-panel">
+                        <i class="fa-solid fa-users admin-stat-icon text-success"></i>
+                        <div class="stat-info">
+                            <span class="stat-label">Active Connections</span>
+                            <span class="stat-value" id="admin-stat-connections">24</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Admin Users details row -->
+                <div class="admin-users-row">
+                    <!-- Teachers List Card -->
+                    <div class="glass-panel admin-users-card">
+                        <div class="section-title">
+                            <h3><i class="fa-solid fa-chalkboard-user"></i> Teacher Details</h3>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Email</th>
+                                        <th>Department</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="admin-teachers-tbody">
+                                    <!-- Dynamic content -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Students List Card -->
+                    <div class="glass-panel admin-users-card">
+                        <div class="section-title">
+                            <h3><i class="fa-solid fa-graduation-cap"></i> Student Details</h3>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Email</th>
+                                        <th>Reg. No.</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="admin-students-tbody">
+                                    <!-- Dynamic content -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Audit Log Stream -->
+                <div class="admin-logs-card glass-panel">
+                    <div class="section-title">
+                        <h3><i class="fa-solid fa-receipt"></i> Immutable Audit Log Stream</h3>
+                    </div>
+                    <div class="log-stream-container" id="admin-audit-log-container">
+                        <!-- Dynamic list of log logs -->
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="footer">
+        <p>© 2026 Smart Examination & Evaluation Platform (SEEP). Designed for Enterprise Scaling.</p>
+    </footer>
+
+    <!-- Toast Notification Container -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <!-- Custom Modal Dialog Overlay -->
+    <div id="custom-modal-overlay" class="modal-overlay" style="display: none;">
+        <div class="modal-box glass-panel">
+            <div class="modal-header">
+                <h3 id="custom-modal-title">System Alert</h3>
+                <button class="modal-close-btn" onclick="closeCustomModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p id="custom-modal-message">Details go here...</p>
+            </div>
+            <div class="modal-footer" id="custom-modal-footer">
+                <button class="btn btn-primary" id="custom-modal-ok-btn">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- App JavaScript Logic -->
+    <script src="/app.js"></script>
+</body>
+</html>
