@@ -35,6 +35,7 @@ const db = {
   evaluations: {},
   proctorLogs: {},
   malpracticeReports: [],
+  retestRequests: [],
   auditLogs: [
     { timestamp: new Date().toISOString(), user: 'System', action: 'PLATFORM_INITIALIZATION', details: 'MCQ examination platform loaded.' }
   ]
@@ -620,6 +621,110 @@ app.post('/api/v1/teacher/exams/reattend', (req, res) => {
   res.json({ status: 'success', message: 'Student is allowed to reattend the exam.' });
 });
 
+app.post('/api/v1/exams/:id/retest-request', (req, res) => {
+  const examId = req.params.id;
+  const { studentId, reason } = req.body;
+
+  if (!reason) {
+    return res.status(400).json({ status: 'error', message: 'Reason is required.' });
+  }
+
+  const exam = db.exams.find(e => e.id === examId);
+  const student = db.users.find(u => u.id === studentId);
+  if (!exam || !student) {
+    return res.status(404).json({ status: 'error', message: 'Exam or student not found.' });
+  }
+
+  const existingRequest = db.retestRequests.find(r => r.examId === examId && r.studentId === studentId && r.status === 'PENDING');
+  if (existingRequest) {
+    return res.status(400).json({ status: 'error', message: 'A retest request is already pending for this exam.' });
+  }
+
+  const newRequest = {
+    id: generateId('req'),
+    examId,
+    examTitle: exam.title,
+    studentId,
+    studentName: student.name,
+    reason: reason.trim(),
+    status: 'PENDING',
+    requestedAt: new Date().toISOString()
+  };
+
+  db.retestRequests.push(newRequest);
+  logAction(student.email, 'RETEST_REQUESTED', `Exam: ${exam.title} | Reason: ${newRequest.reason}`);
+
+  res.status(201).json({ status: 'success', request: newRequest });
+});
+
+app.get('/api/v1/teacher/security-dashboard', (req, res) => {
+  const teacherId = req.query.teacherId;
+  const teacher = getTeacherByUserId(teacherId) || db.teachers.find(t => t.id === teacherId);
+  const resolvedTeacherId = teacher ? teacher.id : teacherId;
+
+  const teacherExams = db.exams.filter(e => e.teacherId === resolvedTeacherId).map(e => e.id);
+
+  const violations = db.malpracticeReports.filter(r => r.teacherId === resolvedTeacherId || teacherExams.includes(r.examId));
+  const pendingRequests = db.retestRequests.filter(r => r.status === 'PENDING' && teacherExams.includes(r.examId));
+  const historyRequests = db.retestRequests.filter(r => r.status !== 'PENDING' && teacherExams.includes(r.examId));
+
+  res.json({
+    status: 'success',
+    violations,
+    pendingRequests,
+    historyRequests
+  });
+});
+
+app.get('/api/v1/teacher/retest-requests', (req, res) => {
+  const teacherId = req.query.teacherId;
+  const teacherExams = db.exams.filter(e => e.teacherId === teacherId).map(e => e.id);
+  const requests = db.retestRequests.filter(r => teacherExams.includes(r.examId));
+  res.json({ status: 'success', requests });
+});
+
+app.post('/api/v1/teacher/retest-requests/:requestId/action', (req, res) => {
+  const requestId = req.params.requestId;
+  const { action } = req.body;
+
+  const request = db.retestRequests.find(r => r.id === requestId);
+  if (!request) {
+    return res.status(404).json({ status: 'error', message: 'Retest request not found.' });
+  }
+
+  if (request.status !== 'PENDING') {
+    return res.status(400).json({ status: 'error', message: 'Request has already been processed.' });
+  }
+
+  if (action === 'APPROVE') {
+    request.status = 'APPROVED';
+    const sessionKey = `${request.examId}:::${request.studentId}`;
+    
+    delete db.evaluations[sessionKey];
+    delete db.answers[sessionKey];
+    delete db.proctorLogs[sessionKey];
+
+    db.malpracticeReports = db.malpracticeReports.filter(
+      r => !(r.examId === request.examId && r.studentId === request.studentId)
+    );
+
+    logAction(request.studentName, 'RETEST_APPROVED', `Retest approved by teacher for exam: ${request.examTitle}`);
+    res.json({ status: 'success', message: 'Retest request approved. Student exam attempt reset.', request });
+  } else if (action === 'DECLINE') {
+    request.status = 'DECLINED';
+    logAction(request.studentName, 'RETEST_DECLINED', `Retest declined by teacher for exam: ${request.examTitle}`);
+    res.json({ status: 'success', message: 'Retest request declined.', request });
+  } else {
+    res.status(400).json({ status: 'error', message: 'Invalid action.' });
+  }
+});
+
+app.get('/api/v1/student/retest-requests/:studentId', (req, res) => {
+  const studentId = req.params.studentId;
+  const requests = db.retestRequests.filter(r => r.studentId === studentId);
+  res.json({ status: 'success', requests });
+});
+
 // =========================================================================
 // ADMIN
 // =========================================================================
@@ -669,8 +774,10 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-app.listen(PORT, () => {
-  
-  console.log(`SEEP MCQ Platform running on http://localhost:${PORT}`);
-  
-});
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`SEEP MCQ Platform running on http://localhost:${PORT}`);
+  });
+}
+
+module.exports = { app };

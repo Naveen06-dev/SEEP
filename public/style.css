@@ -1328,3 +1328,28 @@ body {
     color: var(--accent);
     min-width: 1.5rem;
 }
+
+/* Proctoring Simulation & Alert Styling */
+.simulation-banner {
+    transition: var(--transition);
+}
+.simulation-banner:hover {
+    border-color: var(--accent) !important;
+    box-shadow: 0 4px 20px rgba(99, 102, 241, 0.15);
+}
+.alert-card, .request-card, .history-card {
+    transition: var(--transition);
+}
+.alert-card:hover {
+    box-shadow: 0 4px 15px rgba(239, 68, 68, 0.15);
+    transform: translateY(-2px);
+}
+.request-card:hover {
+    box-shadow: 0 4px 15px rgba(245, 158, 11, 0.15);
+    transform: translateY(-2px);
+}
+.history-card:hover {
+    box-shadow: 0 4px 15px rgba(255, 255, 255, 0.05);
+    transform: translateY(-2px);
+}
+

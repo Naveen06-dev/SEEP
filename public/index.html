@@ -84,6 +84,23 @@
 
         <!-- 2. STUDENT DASHBOARD -->
         <section id="view-student-dashboard" class="view-section">
+            <!-- Proctoring Simulation Control Panel -->
+            <div class="simulation-banner glass-panel" style="margin-bottom: 1.5rem; padding: 1rem 1.5rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; border: 1px solid rgba(255, 255, 255, 0.1);">
+                <div style="display: flex; align-items: center; gap: 0.75rem;">
+                    <i class="fa-solid fa-wand-magic-sparkles" style="font-size: 1.25rem; color: var(--accent); filter: drop-shadow(0 0 4px var(--accent));"></i>
+                    <div>
+                        <h4 style="margin: 0; font-size: 0.95rem; font-weight: 600;">Proctoring Simulation Controls</h4>
+                        <p style="margin: 0.15rem 0 0 0; font-size: 0.8rem; color: var(--text-secondary);">Enable simulation threats to test the platform's anti-cheating response.</p>
+                    </div>
+                </div>
+                <div style="display: flex; gap: 1rem; align-items: center;">
+                    <label class="switch-label" style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; cursor: pointer; user-select: none;">
+                        <input type="checkbox" id="simulate-extension-check" style="cursor: pointer; width: 1.15rem; height: 1.15rem; accent-color: var(--accent);">
+                        <span style="font-weight: 500;">Simulate AI / Screen Capture Extension</span>
+                    </label>
+                </div>
+            </div>
+
             <div class="dashboard-grid">
                 <!-- Left: Available Exams -->
                 <div class="dashboard-col glass-panel">
@@ -199,6 +216,9 @@
                     <button class="teacher-tab" data-tab="results" onclick="switchTeacherTab('results')">
                         <i class="fa-solid fa-chart-bar"></i> Student Results
                     </button>
+                    <button class="teacher-tab" data-tab="retest-requests" onclick="switchTeacherTab('retest-requests')">
+                        <i class="fa-solid fa-envelope-open-text"></i> Retest Requests <span id="retest-badge" class="badge" style="background: var(--danger); color: white; border-radius: 50%; padding: 0.15rem 0.4rem; font-size: 0.75rem; margin-left: 0.25rem; display: none;">0</span>
+                    </button>
                 </div>
 
                 <!-- Tab: Teacher Profile -->
@@ -255,7 +275,7 @@
                             </div>
                             <div class="form-group">
                                 <label for="exam-duration-input">Duration (minutes)</label>
-                                <input type="number" id="exam-duration-input" value="30" min="5" max="180">
+                                <input type="number" id="exam-duration-input" value="30">
                             </div>
                             <div class="form-group">
                                 <label for="exam-marks-input">Marks per Question</label>
@@ -366,6 +386,27 @@
                         <h5 id="result-detail-exam">Exam</h5>
                         <div id="result-detail-questions" class="result-detail-questions"></div>
                         <button class="btn btn-secondary" onclick="document.getElementById('teacher-result-detail-panel').style.display='none'">Close</button>
+                    </div>
+                </div>
+
+                <!-- Tab: Retest Requests -->
+                <div id="teacher-tab-retest-requests" class="teacher-tab-panel glass-panel">
+                    <div class="section-title">
+                        <h3><i class="fa-solid fa-envelope-open-text"></i> Retest Authorization Requests</h3>
+                    </div>
+                    <div class="dashboard-grid" style="grid-template-columns: 1fr 1fr; margin-top: 1rem;">
+                        <div>
+                            <h4 style="margin-bottom: 0.75rem;">Malpractice Alerts</h4>
+                            <div id="teacher-security-violations" class="exams-container"></div>
+                        </div>
+                        <div>
+                            <h4 style="margin-bottom: 0.75rem;">Pending Retest Requests</h4>
+                            <div id="teacher-security-requests" class="exams-container"></div>
+                        </div>
+                    </div>
+                    <div style="margin-top: 1.5rem;">
+                        <h4 style="margin-bottom: 0.75rem;">Retest History</h4>
+                        <div id="teacher-security-history" class="exams-container"></div>
                     </div>
                 </div>
             </div>
@@ -484,6 +525,32 @@
             <div class="modal-footer" id="custom-modal-footer">
                 <button class="btn btn-primary" id="custom-modal-ok-btn">OK</button>
             </div>
+        </div>
+    </div>
+
+    <!-- Retest Request Modal -->
+    <div id="retest-modal-overlay" class="modal-overlay" style="display: none;">
+        <div class="modal-box glass-panel">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-envelope-open-text"></i> Request Retest</h3>
+                <button class="modal-close-btn" onclick="document.getElementById('retest-modal-overlay').style.display='none'">&times;</button>
+            </div>
+            <form id="retest-request-form">
+                <input type="hidden" id="retest-exam-id">
+                <div class="modal-body">
+                    <p style="margin-bottom: 1rem; font-size: 0.9rem; color: var(--text-secondary);">
+                        Please provide a valid reason for why you need to reattend this exam. The teacher will review your request.
+                    </p>
+                    <div class="form-group" style="display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 1rem;">
+                        <label for="retest-reason-input" style="font-size: 0.85rem; color: var(--text-secondary);">Reason for Retest</label>
+                        <textarea id="retest-reason-input" rows="4" required placeholder="My laptop shutdown / power outage / lost focus by accident..." style="background: rgba(0, 0, 0, 0.3); border: 1px solid var(--glass-border); border-radius: 8px; padding: 0.65rem; color: var(--text-primary); font-family: inherit; font-size: 0.95rem; resize: vertical; outline: none;"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="document.getElementById('retest-modal-overlay').style.display='none'">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Submit Request</button>
+                </div>
+            </form>
         </div>
     </div>
 

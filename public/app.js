@@ -19,7 +19,9 @@ const state = {
     warningsCount: 0,
     durationSecondsLeft: 0,
     timerInterval: null,
-    adminStatsInterval: null
+    adminStatsInterval: null,
+    examViolationTracking: false,
+    examViolationHandled: false
 };
 
 const BASE_URL = window.location.origin;
@@ -93,6 +95,14 @@ function showView(viewId) {
         state.adminStatsInterval = null;
     }
 
+    if (viewId !== 'view-teacher-dashboard') {
+        if (state.teacherDashboardInterval) {
+            clearInterval(state.teacherDashboardInterval);
+            state.teacherDashboardInterval = null;
+        }
+        state.lastViolationCount = null;
+    }
+
     document.querySelectorAll('.view-section').forEach(v => v.classList.remove('active'));
     const activeView = document.getElementById(viewId);
     if (activeView) activeView.classList.add('active');
@@ -161,10 +171,23 @@ document.getElementById('logout-btn').addEventListener('click', () => {
 // STUDENT
 // =========================================================================
 
+state.retestRequests = [];
+
 async function loadStudentDashboard() {
     showView('view-student-dashboard');
-    await fetchStudentExams();
     await fetchStudentResults();
+    await fetchStudentRetestRequests();
+    await fetchStudentExams();
+}
+
+async function fetchStudentRetestRequests() {
+    try {
+        const res = await fetch(`${BASE_URL}/api/v1/student/retest-requests/${state.currentUser.id}`);
+        const data = await res.json();
+        state.retestRequests = data.requests || [];
+    } catch (err) {
+        console.error("Failed to fetch student retest requests:", err);
+    }
 }
 
 async function fetchStudentExams() {
@@ -181,6 +204,38 @@ async function fetchStudentExams() {
         }
 
         state.exams.forEach(exam => {
+            const result = state.results.find(r => r.examId === exam.id);
+            const retestRequest = state.retestRequests.find(r => r.examId === exam.id && r.status === 'PENDING');
+            const declinedRequest = state.retestRequests.find(r => r.examId === exam.id && r.status === 'DECLINED');
+
+            let actionHtml = '';
+            if (result) {
+                const isMalpractice = result.status === 'MALPRACTICE';
+                if (isMalpractice) {
+                    if (retestRequest) {
+                        actionHtml = `<span class="badge" style="padding: 0.5rem; border-radius: 4px; font-size: 0.85rem; font-weight:600; background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid #f59e0b;"><i class="fa-solid fa-spinner fa-spin"></i> Request Pending</span>`;
+                    } else if (declinedRequest) {
+                        actionHtml = `
+                            <div style="display: flex; flex-direction: column; gap: 0.5rem; align-items: flex-end;">
+                                <span class="badge" style="padding: 0.5rem; border-radius: 4px; font-size: 0.85rem; font-weight:600; background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid #ef4444;"><i class="fa-solid fa-circle-xmark"></i> Retest Declined</span>
+                                <button class="btn btn-warning btn-sm" onclick="openRetestRequestModal('${exam.id}')"><i class="fa-solid fa-arrow-rotate-left"></i> Re-request Retest</button>
+                            </div>
+                        `;
+                    } else {
+                        actionHtml = `
+                            <div style="display: flex; flex-direction: column; gap: 0.5rem; align-items: flex-end;">
+                                <span class="badge" style="padding: 0.5rem; border-radius: 4px; font-size: 0.85rem; font-weight:600; background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid #ef4444;">ELIMINATED</span>
+                                <button class="btn btn-warning btn-sm" onclick="openRetestRequestModal('${exam.id}')"><i class="fa-solid fa-arrow-rotate-left"></i> Request Retest</button>
+                            </div>
+                        `;
+                    }
+                } else {
+                    actionHtml = `<span class="badge" style="padding: 0.5rem; border-radius: 4px; font-size: 0.85rem; font-weight:600; background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid #10b981;"><i class="fa-solid fa-circle-check"></i> Completed</span>`;
+                }
+            } else {
+                actionHtml = `<button class="btn btn-primary" onclick="initiateExamSession('${exam.id}')">Start MCQ Exam</button>`;
+            }
+
             container.innerHTML += `
                 <div class="exam-card">
                     <div class="exam-card-info">
@@ -193,7 +248,7 @@ async function fetchStudentExams() {
                         </div>
                         <div class="exam-meta"><span><i class="fa-solid fa-chalkboard-user"></i> ${escapeHtml(exam.teacherName || '')}</span></div>
                     </div>
-                    <div><button class="btn btn-primary" onclick="initiateExamSession('${exam.id}')">Start MCQ Exam</button></div>
+                    <div>${actionHtml}</div>
                 </div>
             `;
         });
@@ -236,8 +291,90 @@ async function fetchStudentResults() {
     }
 }
 
-window.initiateExamSession = function(examId) {
+function detectBrowserExtensions() {
+    const simCheckbox = document.getElementById('simulate-extension-check');
+    if (simCheckbox && simCheckbox.checked) {
+        console.warn("Detected simulated browser extension via simulation control panel");
+        return true;
+    }
+
+    const selectors = [
+        'grammarly-extension',
+        'grammarly-card',
+        '[id*="grammarly"]',
+        '[class*="grammarly"]',
+        '#adblock',
+        '.adblock',
+        'adblock-detector',
+        'div[id^="extension-"]',
+        'iframe[src^="chrome-extension://"]',
+        'script[src^="chrome-extension://"]',
+        'link[href^="chrome-extension://"]',
+        '[data-dashlane-rid]',
+        '[data-lastpass-icon]',
+        'com-1password-button',
+        'div[data-helper="true"]',
+        '#chrome-extension',
+        '#mock-extension'
+    ];
+
+    for (const selector of selectors) {
+        if (document.querySelector(selector)) {
+            console.warn("Detected browser extension element matching selector:", selector);
+            return true;
+        }
+    }
+
+    const hasExtensionScript = Array.from(document.querySelectorAll('script, link')).some(el => {
+        const src = el.src || el.href || '';
+        return src.startsWith('chrome-extension://') || src.startsWith('moz-extension://');
+    });
+    if (hasExtensionScript) {
+        console.warn("Detected browser extension injected script/stylesheet");
+        return true;
+    }
+
+    const extensionGlobals = [
+        '__chromeExtensionActive',
+        '__adblockDetected',
+        'grammarly',
+        'googleTranslateElementInit'
+    ];
+    for (const glob of extensionGlobals) {
+        if (window[glob] !== undefined) {
+            console.warn("Detected browser extension global variable:", glob);
+            return true;
+        }
+    }
+
+    return false;
+}
+
+window.initiateExamSession = async function(examId) {
+    if (detectBrowserExtensions()) {
+        await showCustomModal(
+            'Security Alert: Browser Extensions Detected',
+            'Please disable all restricted browser extensions before starting the exam.'
+        );
+        return;
+    }
+
+    // Synchronously request fullscreen mode inside the user gesture handler
+    try {
+        if (document.documentElement.requestFullscreen) {
+            await document.documentElement.requestFullscreen();
+        } else if (document.documentElement.webkitRequestFullscreen) {
+            await document.documentElement.webkitRequestFullscreen();
+        } else if (document.documentElement.msRequestFullscreen) {
+            await document.documentElement.msRequestFullscreen();
+        }
+    } catch (err) {
+        console.error('Initial fullscreen request failed or was rejected:', err);
+    }
+
     state.activeExam = state.exams.find(e => e.id === examId);
+    state.examViolationTracking = false;
+    state.examViolationHandled = false;
     startExamWorkspace();
 };
 
@@ -252,6 +389,9 @@ async function startExamWorkspace() {
         const data = await res.json();
         if (data.status === 'error') {
             await showCustomModal('Error', data.message);
+            if (document.fullscreenElement) {
+                await document.exitFullscreen().catch(() => {});
+            }
             loadStudentDashboard();
             return;
         }
@@ -273,6 +413,9 @@ async function startExamWorkspace() {
         startExamTimers();
         startLocalAntiCheatingTracking();
     } catch (err) {
+        if (document.fullscreenElement) {
+            await document.exitFullscreen().catch(() => {});
+        }
         await showCustomModal('Error', 'Failed to start exam.');
         loadStudentDashboard();
     }
@@ -386,12 +529,125 @@ function startExamTimers() {
 }
 
 function startLocalAntiCheatingTracking() {
-    window.onblur = () => {
-        if (state.activeExam) {
-            triggerProctorWarning('TAB_SWITCH', 'Student switched browser tab');
-            showToast('WARNING: Tab switching is not allowed during the exam.', 'danger');
+    state.examViolationTracking = true;
+    state.examViolationHandled = false;
+
+    // Verify student entered fullscreen successfully
+    if (!document.fullscreenElement) {
+        console.warn("Fullscreen was not active when anti-cheating tracking started");
+        triggerImmediateMalpractice('FULLSCREEN_NOT_ACTIVE', 'Exam was started but fullscreen mode was not active or was exited.');
+        return;
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChangeExam);
+    document.addEventListener('fullscreenchange', handleFullscreenExitChange);
+    document.addEventListener('mouseleave', handleMouseLeaveExam);
+    window.addEventListener('blur', handleWindowBlurExam);
+    window.addEventListener('keydown', handleKeydownExam);
+    window.addEventListener('beforeunload', handleBeforeUnloadExam);
+    document.addEventListener('contextmenu', handleContextMenuExam);
+}
+
+function handleFullscreenExitChange() {
+    if (state.activeExam && state.examViolationTracking && !state.examViolationHandled && !document.fullscreenElement) {
+        triggerImmediateMalpractice('FULLSCREEN_EXIT', 'Student exited fullscreen mode (Esc key / minimize)');
+    }
+}
+
+function handleVisibilityChangeExam() {
+    if (state.activeExam && state.examViolationTracking && !state.examViolationHandled && document.visibilityState !== 'visible') {
+        triggerImmediateMalpractice('VISIBILITY_CHANGE', 'Student left the exam tab or window');
+    }
+}
+
+function handleMouseLeaveExam(e) {
+    if (state.activeExam && state.examViolationTracking && !state.examViolationHandled) {
+        if (e.clientY < 0 || e.clientX < 0 || e.clientX > window.innerWidth || e.clientY > window.innerHeight) {
+            triggerImmediateMalpractice('MOUSE_LEAVE', 'Student cursor moved outside the test window');
         }
-    };
+    }
+}
+
+function handleWindowBlurExam() {
+    if (state.activeExam && state.examViolationTracking && !state.examViolationHandled) {
+        triggerImmediateMalpractice('WINDOW_BLUR', 'Student left the test window (focused another app or clicked Windows button)');
+    }
+}
+
+function handleKeydownExam(e) {
+    if (state.activeExam && state.examViolationTracking && !state.examViolationHandled) {
+        // Block Escape, Meta, Alt, Tab
+        if (e.key === 'Escape' || e.key === 'Meta' || e.metaKey || e.altKey || e.key === 'Tab') {
+            e.preventDefault();
+            triggerImmediateMalpractice('KEY_MUTATION', `Student pressed prohibited key or shortcut: ${e.key}`);
+            return;
+        }
+        // Block F12, Ctrl+Shift+I, Ctrl+Shift+J, Ctrl+Shift+C, Ctrl+U
+        if (e.key === 'F12' || (e.ctrlKey && e.shiftKey && (e.key === 'I' || e.key === 'J' || e.key === 'C')) || (e.ctrlKey && e.key === 'U')) {
+            e.preventDefault();
+            triggerImmediateMalpractice('DEV_TOOLS_OPEN', 'Student attempted to open browser Developer Tools');
+        }
+    }
+}
+
+function handleContextMenuExam(e) {
+    if (state.activeExam && state.examViolationTracking && !state.examViolationHandled) {
+        e.preventDefault();
+        triggerImmediateMalpractice('CONTEXT_MENU', 'Student attempted to open context menu (Right Click)');
+    }
+}
+
+function handleBeforeUnloadExam() {
+    if (state.activeExam && state.examViolationTracking && !state.examViolationHandled) {
+        triggerImmediateMalpractice('BROWSER_CLOSE', 'Student closed or reloaded the exam window');
+    }
+}
+
+async function triggerImmediateMalpractice(type, reason) {
+    if (!state.activeExam || state.examViolationHandled) return;
+
+    state.examViolationHandled = true;
+    state.examViolationTracking = false;
+
+    document.removeEventListener('visibilitychange', handleVisibilityChangeExam);
+    document.removeEventListener('fullscreenchange', handleFullscreenExitChange);
+    document.removeEventListener('mouseleave', handleMouseLeaveExam);
+    window.removeEventListener('blur', handleWindowBlurExam);
+    window.removeEventListener('keydown', handleKeydownExam);
+    window.removeEventListener('beforeunload', handleBeforeUnloadExam);
+    document.removeEventListener('contextmenu', handleContextMenuExam);
+    clearInterval(state.timerInterval);
+
+    const examId = state.activeExam.id;
+
+    try {
+        await fetch(`${BASE_URL}/api/v1/exams/${examId}/submit`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                studentId: state.currentUser.id,
+                malpractice: true,
+                malpracticeType: type,
+                malpracticeReason: reason
+            })
+        });
+
+        if (document.fullscreenElement) {
+            document.exitFullscreen().catch(() => {});
+        }
+
+        await showCustomModal(
+            'Exam Terminated - Malpractice Detected',
+            `Your exam session has been terminated immediately.\n\nReason: ${reason}\n\nA malpractice incident report has been sent to your teacher. You can request a retest after the teacher reviews your case.`
+        );
+
+        state.activeExam = null;
+        await loadStudentDashboard();
+    } catch (err) {
+        console.error("Failed to submit malpractice termination:", err);
+        state.activeExam = null;
+        loadStudentDashboard();
+    }
 }
 
 async function triggerProctorWarning(type, reason) {
@@ -425,6 +681,20 @@ document.getElementById('btn-finish-exam').addEventListener('click', () => {
 async function submitExamResults() {
     window.onblur = null;
     clearInterval(state.timerInterval);
+
+    state.examViolationTracking = false;
+    document.removeEventListener('visibilitychange', handleVisibilityChangeExam);
+    document.removeEventListener('fullscreenchange', handleFullscreenExitChange);
+    document.removeEventListener('mouseleave', handleMouseLeaveExam);
+    window.removeEventListener('blur', handleWindowBlurExam);
+    window.removeEventListener('keydown', handleKeydownExam);
+    window.removeEventListener('beforeunload', handleBeforeUnloadExam);
+    document.removeEventListener('contextmenu', handleContextMenuExam);
+
+    if (document.fullscreenElement) {
+        await document.exitFullscreen().catch(() => {});
+    }
+
     try {
         const res = await fetch(`${BASE_URL}/api/v1/exams/${state.activeExam.id}/submit`, {
             method: 'POST',
@@ -435,12 +705,45 @@ async function submitExamResults() {
         await showCustomModal('Exam Submitted',
             `Score: ${data.score}/${data.totalMarks}\nCorrect: ${data.correctCount}/${data.totalQuestions}\nPercentage: ${data.percentage}%\nGrade: ${data.grade}`);
         state.activeExam = null;
-        loadStudentDashboard();
+        await loadStudentDashboard();
     } catch (err) {
         await showCustomModal('Error', 'Failed to submit exam.');
         loadStudentDashboard();
     }
 }
+
+window.openRetestRequestModal = function(examId) {
+    document.getElementById('retest-exam-id').value = examId;
+    document.getElementById('retest-reason-input').value = '';
+    document.getElementById('retest-modal-overlay').style.display = 'flex';
+};
+
+document.getElementById('retest-request-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const examId = document.getElementById('retest-exam-id').value;
+    const reason = document.getElementById('retest-reason-input').value.trim();
+
+    try {
+        const res = await fetch(`${BASE_URL}/api/v1/exams/${examId}/retest-request`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                studentId: state.currentUser.id,
+                reason
+            })
+        });
+        const data = await res.json();
+        if (data.status === 'success') {
+            showToast('Retest request submitted successfully.', 'success');
+            document.getElementById('retest-modal-overlay').style.display = 'none';
+            await loadStudentDashboard();
+        } else {
+            showToast(data.message || 'Failed to submit request.', 'danger');
+        }
+    } catch (err) {
+        showToast('Network error occurred.', 'danger');
+    }
+});
 
 // =========================================================================
 // TEACHER
@@ -455,10 +758,38 @@ window.switchTeacherTab = function(tabId) {
     if (tabId === 'results') fetchTeacherSubmissions();
 };
 
+function playAlertSound() {
+    try {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc1 = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+
+        osc1.type = 'sine';
+        osc1.frequency.setValueAtTime(880, audioCtx.currentTime); // A5 note
+        osc1.frequency.setValueAtTime(1100, audioCtx.currentTime + 0.15); // C#6 note
+
+        gainNode.gain.setValueAtTime(0.12, audioCtx.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.4);
+
+        osc1.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+
+        osc1.start();
+        osc1.stop(audioCtx.currentTime + 0.45);
+    } catch (e) {
+        console.warn('Audio alert play failed:', e);
+    }
+}
+
 async function loadTeacherDashboard() {
     showView('view-teacher-dashboard');
     switchTeacherTab('profile');
     await loadTeacherProfile();
+    await fetchTeacherSecurityDashboard();
+
+    // Start polling the security dashboard every 3 seconds for instant notifications
+    clearInterval(state.teacherDashboardInterval);
+    state.teacherDashboardInterval = setInterval(fetchTeacherSecurityDashboard, 3000);
 }
 
 async function loadTeacherProfile() {
@@ -475,6 +806,135 @@ async function loadTeacherProfile() {
         console.error(err);
     }
 }
+
+async function fetchTeacherSecurityDashboard() {
+    try {
+        const res = await fetch(`${BASE_URL}/api/v1/teacher/security-dashboard?teacherId=${state.currentUser.id}`);
+        const data = await res.json();
+        const badge = document.getElementById('retest-badge');
+        const pendingCount = (data.pendingRequests || []).length;
+        badge.style.display = pendingCount > 0 ? 'inline-flex' : 'none';
+        badge.innerText = pendingCount;
+
+        // Check for new malpractice events to trigger sound & toast alerts
+        if (state.lastViolationCount !== undefined && state.lastViolationCount !== null && data.violations.length > state.lastViolationCount) {
+            const newCount = data.violations.length - state.lastViolationCount;
+            for (let i = 0; i < newCount; i++) {
+                const item = data.violations[i];
+                if (item) {
+                    showToast(`<strong>Malpractice Alert:</strong> ${escapeHtml(item.studentName)} (${escapeHtml(item.studentId || 'N/A')}) flagged for ${escapeHtml(item.type)} in "${escapeHtml(item.examTitle)}"`, 'danger', 8000);
+                }
+            }
+            playAlertSound();
+        }
+        state.lastViolationCount = data.violations.length;
+
+        const violationContainer = document.getElementById('teacher-security-violations');
+        if (violationContainer) {
+            violationContainer.innerHTML = '';
+            if (!data.violations || data.violations.length === 0) {
+                violationContainer.innerHTML = '<p class="text-muted">No malpractice events recorded.</p>';
+            } else {
+                violationContainer.innerHTML = data.violations.slice(0, 8).map(item => `
+                    <div class="added-question-card alert-card" style="border-left: 4px solid var(--danger); background: rgba(239, 68, 68, 0.03); padding: 1rem; margin-bottom: 0.75rem; border-radius: 8px;">
+                        <div style="display: flex; justify-content: space-between; align-items: start;">
+                            <h4 style="margin: 0; font-size: 0.95rem; font-weight: 600; color: var(--text-primary);">${escapeHtml(item.studentName)}</h4>
+                            <span class="exam-status-pill status-draft" style="background: rgba(239, 68, 68, 0.15); color: var(--danger); border: 1px solid var(--danger); font-size: 0.7rem; padding: 0.1rem 0.4rem; border-radius: 4px; font-weight:600;">${escapeHtml(item.type)}</span>
+                        </div>
+                        <div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.25rem; display: flex; flex-direction: column; gap: 0.15rem;">
+                            <span><strong>Student ID:</strong> ${escapeHtml(item.studentId || 'N/A')}</span>
+                            <span><strong>Exam:</strong> ${escapeHtml(item.examTitle)}</span>
+                            <span><strong>Time:</strong> ${new Date(item.reportedAt || item.timestamp).toLocaleString()}</span>
+                        </div>
+                        <div style="margin-top: 0.5rem; font-size: 0.85rem; padding: 0.5rem; background: rgba(0, 0, 0, 0.2); border-radius: 4px; border: 1px solid rgba(255, 255, 255, 0.05); color: var(--text-primary);">
+                            <strong>Details:</strong> ${escapeHtml(item.reason)}
+                        </div>
+                    </div>
+                `).join('');
+            }
+        }
+
+        const requestContainer = document.getElementById('teacher-security-requests');
+        if (requestContainer) {
+            requestContainer.innerHTML = '';
+            if (!data.pendingRequests || data.pendingRequests.length === 0) {
+                requestContainer.innerHTML = '<p class="text-muted">No pending retest requests.</p>';
+            } else {
+                requestContainer.innerHTML = data.pendingRequests.map(item => `
+                    <div class="added-question-card request-card" style="border-left: 4px solid var(--warning); background: rgba(245, 158, 11, 0.03); padding: 1rem; margin-bottom: 0.75rem; border-radius: 8px;">
+                        <h4 style="margin: 0; font-size: 0.95rem; font-weight: 600; color: var(--text-primary);">${escapeHtml(item.studentName)}</h4>
+                        <div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.25rem; display: flex; flex-direction: column; gap: 0.15rem;">
+                            <span><strong>Student ID:</strong> ${escapeHtml(item.studentId || 'N/A')}</span>
+                            <span><strong>Exam:</strong> ${escapeHtml(item.examTitle)}</span>
+                            <span><strong>Requested At:</strong> ${new Date(item.requestedAt).toLocaleString()}</span>
+                        </div>
+                        <div style="margin-top: 0.5rem; font-size: 0.85rem; padding: 0.5rem; background: rgba(0, 0, 0, 0.2); border-radius: 4px; border: 1px solid rgba(255, 255, 255, 0.05); color: var(--text-primary);">
+                            <strong>Reason:</strong> ${escapeHtml(item.reason)}
+                        </div>
+                        <div style="margin-top: 0.75rem; display: flex; gap: 0.5rem;">
+                            <button class="btn btn-primary btn-sm" onclick="handleRetestAction('${item.id}', 'APPROVE')" style="padding: 0.35rem 0.75rem; font-size: 0.8rem; background-color: var(--success);"><i class="fa-solid fa-check"></i> Approve Retest</button>
+                            <button class="btn btn-secondary btn-sm" onclick="handleRetestAction('${item.id}', 'DECLINE')" style="padding: 0.35rem 0.75rem; font-size: 0.8rem; background-color: var(--danger);"><i class="fa-solid fa-xmark"></i> Decline</button>
+                        </div>
+                    </div>
+                `).join('');
+            }
+        }
+
+        const historyContainer = document.getElementById('teacher-security-history');
+        if (historyContainer) {
+            historyContainer.innerHTML = '';
+            if (!data.historyRequests || data.historyRequests.length === 0) {
+                historyContainer.innerHTML = '<p class="text-muted">No retest history yet.</p>';
+            } else {
+                historyContainer.innerHTML = data.historyRequests.map(item => {
+                    const isApproved = item.status === 'APPROVED';
+                    const statusColor = isApproved ? 'var(--success)' : 'var(--danger)';
+                    const statusIcon = isApproved ? 'fa-circle-check' : 'fa-circle-xmark';
+
+                    return `
+                        <div class="added-question-card history-card" style="border-left: 4px solid ${statusColor}; padding: 1rem; margin-bottom: 0.75rem; border-radius: 8px;">
+                            <div style="display: flex; justify-content: space-between; align-items: start;">
+                                <h4 style="margin: 0; font-size: 0.95rem; font-weight: 600; color: var(--text-primary);">${escapeHtml(item.studentName)}</h4>
+                                <span style="font-size: 0.8rem; font-weight: 600; color: ${statusColor}; display: flex; align-items: center; gap: 0.25rem;">
+                                    <i class="fa-solid ${statusIcon}"></i> ${escapeHtml(item.status)}
+                                </span>
+                            </div>
+                            <div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.25rem; display: flex; flex-direction: column; gap: 0.15rem;">
+                                <span><strong>Student ID:</strong> ${escapeHtml(item.studentId || 'N/A')}</span>
+                                <span><strong>Exam:</strong> ${escapeHtml(item.examTitle)}</span>
+                                <span><strong>Requested At:</strong> ${new Date(item.requestedAt).toLocaleString()}</span>
+                            </div>
+                            <div style="margin-top: 0.5rem; font-size: 0.85rem; color: var(--text-secondary);">
+                                <strong>Reason:</strong> ${escapeHtml(item.reason)}
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            }
+        }
+    } catch (err) {
+        console.error(err);
+    }
+}
+
+window.handleRetestAction = async function(requestId, action) {
+    try {
+        const res = await fetch(`${BASE_URL}/api/v1/teacher/retest-requests/${requestId}/action`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action })
+        });
+        const data = await res.json();
+        if (data.status === 'success') {
+            showToast(action === 'APPROVE' ? 'Retest approved.' : 'Retest rejected.', 'success');
+            await fetchTeacherSecurityDashboard();
+        } else {
+            showToast(data.message || 'Unable to process request.', 'danger');
+        }
+    } catch (err) {
+        showToast('Unable to complete retest action.', 'danger');
+    }
+};
 
 document.getElementById('teacher-profile-form').addEventListener('submit', async (e) => {
     e.preventDefault();
