@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            width: 250px;
+            margin: 0;
+            padding: 15px;
+            background: #05070e;
+            color: #f3f4f6;
+        }
+        .header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            padding-bottom: 10px;
+            margin-bottom: 12px;
+        }
+        .logo-text {
+            font-weight: bold;
+            color: #6366f1;
+            font-size: 16px;
+        }
+        .status-container {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 8px;
+            padding: 12px;
+            text-align: center;
+        }
+        .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-top: 6px;
+        }
+        .status-active {
+            background: rgba(16, 185, 129, 0.15);
+            color: #10b981;
+            border: 1px solid #10b981;
+        }
+        .status-idle {
+            background: rgba(99, 102, 241, 0.15);
+            color: #6366f1;
+            border: 1px solid #6366f1;
+        }
+        .desc {
+            font-size: 11px;
+            color: #9ca3af;
+            margin-top: 12px;
+            line-height: 1.4;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <span class="logo-text">SEEP Exam Security</span>
+    </div>
+    <div class="status-container">
+        <div style="font-size: 13px; color: #9ca3af;">Proctoring Status</div>
+        <div id="status" class="status-badge status-idle">Idle</div>
+    </div>
+    <p class="desc">
+        This extension enforces exam integrity by disabling other browser add-ons during active assessments. It will automatically restore your extensions when the exam finishes.
+    </p>
+    <script src="popup.js"></script>
+</body>
+</html>

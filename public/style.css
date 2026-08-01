@@ -1353,3 +1353,18 @@ body {
     transform: translateY(-2px);
 }
 
+/* Malpractice Toast alert custom styles */
+.malpractice-alert-toast {
+    line-height: 1.4;
+}
+.malpractice-alert-toast div {
+    margin-bottom: 0.15rem;
+}
+.malpractice-alert-toast strong {
+    color: #fca5a5;
+}
+.malpractice-alert-toast i {
+    color: #f87171;
+    font-size: 1.1rem;
+}
+

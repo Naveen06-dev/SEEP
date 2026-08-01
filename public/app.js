@@ -224,7 +224,7 @@ async function fetchStudentExams() {
                     } else {
                         actionHtml = `
                             <div style="display: flex; flex-direction: column; gap: 0.5rem; align-items: flex-end;">
-                                <span class="badge" style="padding: 0.5rem; border-radius: 4px; font-size: 0.85rem; font-weight:600; background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid #ef4444;">ELIMINATED</span>
+                                <span class="badge" style="padding: 0.5rem; border-radius: 4px; font-size: 0.85rem; font-weight:600; background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid #ef4444;">Malpractice Detected</span>
                                 <button class="btn btn-warning btn-sm" onclick="openRetestRequestModal('${exam.id}')"><i class="fa-solid fa-arrow-rotate-left"></i> Request Retest</button>
                             </div>
                         `;
@@ -271,18 +271,22 @@ async function fetchStudentResults() {
         }
 
         state.results.forEach(result => {
-            const gradeClass = result.grade === 'F' ? 'grade-f' : 'grade-p';
+            const isMalpractice = result.status === 'MALPRACTICE';
+            const gradeDisplay = isMalpractice ? 'Malpractice' : result.grade;
+            const gradeClass = isMalpractice ? 'grade-f' : (result.grade === 'F' ? 'grade-f' : 'grade-p');
+            const scoreDisplay = isMalpractice ? 'Disqualified' : `${result.score}/${result.totalMarks}`;
+            const percentDisplay = isMalpractice ? 'Malpractice Detected' : `${result.percentage}%`;
             container.innerHTML += `
                 <div class="result-row">
                     <div class="result-info">
                         <h5>${escapeHtml(result.examTitle)}</h5>
                         <div class="result-score">
-                            Score: <strong>${result.score}/${result.totalMarks}</strong> |
+                            Score: <strong>${scoreDisplay}</strong> |
                             Correct: <strong>${result.correctCount}/${result.totalQuestions}</strong> |
-                            ${result.percentage}%
+                            ${percentDisplay}
                         </div>
                     </div>
-                    <div class="result-grade ${gradeClass}">${result.grade}</div>
+                    <div class="result-grade ${gradeClass}" style="${isMalpractice ? 'font-size: 0.8rem; padding: 0.25rem 0.5rem; width: auto; border-radius: 4px; text-align: center;' : ''}">${gradeDisplay}</div>
                 </div>
             `;
         });
@@ -298,60 +302,137 @@ function detectBrowserExtensions() {
         return true;
     }
 
-    const selectors = [
-        'grammarly-extension',
-        'grammarly-card',
-        '[id*="grammarly"]',
-        '[class*="grammarly"]',
-        '#adblock',
-        '.adblock',
-        'adblock-detector',
-        'div[id^="extension-"]',
-        'iframe[src^="chrome-extension://"]',
-        'script[src^="chrome-extension://"]',
-        'link[href^="chrome-extension://"]',
-        '[data-dashlane-rid]',
-        '[data-lastpass-icon]',
-        'com-1password-button',
-        'div[data-helper="true"]',
-        '#chrome-extension',
-        '#mock-extension'
-    ];
-
-    for (const selector of selectors) {
-        if (document.querySelector(selector)) {
-            console.warn("Detected browser extension element matching selector:", selector);
+    // 1. Check for non-standard custom element tag names (often injected by extensions)
+    const allElements = document.getElementsByTagName('*');
+    for (let i = 0; i < allElements.length; i++) {
+        const tagName = allElements[i].tagName.toLowerCase();
+        if (tagName.includes('-')) {
+            console.warn("Detected potential browser extension custom tag:", tagName);
             return true;
         }
     }
 
-    const hasExtensionScript = Array.from(document.querySelectorAll('script, link')).some(el => {
-        const src = el.src || el.href || '';
-        return src.startsWith('chrome-extension://') || src.startsWith('moz-extension://');
-    });
-    if (hasExtensionScript) {
-        console.warn("Detected browser extension injected script/stylesheet");
-        return true;
+    // 2. Check for chrome-extension / moz-extension URLs in DOM script/link/iframe sources
+    const extensionSchemes = ['chrome-extension://', 'moz-extension://', 'resource://'];
+    const nodes = document.querySelectorAll('script, link, iframe, img');
+    for (const node of nodes) {
+        const src = node.src || node.href || '';
+        if (extensionSchemes.some(scheme => src.startsWith(scheme))) {
+            console.warn("Detected browser extension resource URL:", src);
+            return true;
+        }
     }
 
+    // 3. Scan attributes on <html> and <body> elements for typical extension markers
+    const bodyAndHtml = [document.documentElement, document.body];
+    const extensionAttrPatterns = ['extension', 'ext-', 'addon', 'grammarly', 'dashlane', 'lastpass', '1password', 'adblock', 'captcha'];
+    for (const el of bodyAndHtml) {
+        if (!el) continue;
+        const attrs = el.attributes;
+        for (let i = 0; i < attrs.length; i++) {
+            const attrName = attrs[i].name.toLowerCase();
+            if (extensionAttrPatterns.some(pattern => attrName.includes(pattern))) {
+                console.warn("Detected browser extension attribute:", attrName);
+                return true;
+            }
+        }
+    }
+
+    // 4. Check for known extension global variables in window object
     const extensionGlobals = [
         '__chromeExtensionActive',
         '__adblockDetected',
         'grammarly',
-        'googleTranslateElementInit'
+        'googleTranslateElementInit',
+        'chrome',
+        'browser'
     ];
     for (const glob of extensionGlobals) {
-        if (window[glob] !== undefined) {
+        if (glob === 'chrome' || glob === 'browser') {
+            if (window[glob] && (window[glob].runtime || window[glob].extension)) {
+                console.warn("Detected browser extension global API:", glob);
+                return true;
+            }
+        } else if (window[glob] !== undefined) {
             console.warn("Detected browser extension global variable:", glob);
             return true;
         }
+    }
+
+    // 5. Look for any styles injected by extensions referring to extension resources
+    try {
+        for (let i = 0; i < document.styleSheets.length; i++) {
+            const sheet = document.styleSheets[i];
+            const rules = sheet.cssRules || sheet.rules;
+            if (rules) {
+                for (let j = 0; j < rules.length; j++) {
+                    const cssText = rules[j].cssText || '';
+                    if (cssText.includes('chrome-extension://') || cssText.includes('moz-extension://')) {
+                        console.warn("Detected browser extension resource in stylesheet rules");
+                        return true;
+                    }
+                }
+            }
+        }
+    } catch (e) {
+        // Cross-origin reading errors are normal and ignored
     }
 
     return false;
 }
 
 window.initiateExamSession = async function(examId) {
+    // 1. Check if the proctor extension is installed
+    const extensionInstalled = document.documentElement.hasAttribute('data-seep-proctor-installed');
+    if (!extensionInstalled) {
+        await showCustomModal(
+            'Security Extension Required',
+            'Please install and enable the SEEP Exam Proctor Security extension to proceed with this exam.'
+        );
+        return;
+    }
+
+    // 2. Request the extension to secure the environment (disable other extensions)
+    showToast('Securing test environment... Disabling other extensions.', 'info', 3000);
+    
+    const secureEnvironment = () => {
+        return new Promise((resolve) => {
+            const handleExtensionResponse = (event) => {
+                if (event.source !== window) return;
+                const data = event.data;
+                if (data && data.source === "seep-extension" && data.type === "START_SECURE_EXAM_RESPONSE") {
+                    window.removeEventListener("message", handleExtensionResponse);
+                    clearTimeout(timeoutId);
+                    resolve(data.success);
+                }
+            };
+
+            window.addEventListener("message", handleExtensionResponse);
+            
+            // Timeout after 4 seconds
+            const timeoutId = setTimeout(() => {
+                window.removeEventListener("message", handleExtensionResponse);
+                resolve(false);
+            }, 4000);
+
+            // Send request to extension
+            window.postMessage({ source: "seep-webpage", type: "START_SECURE_EXAM" }, "*");
+        });
+    };
+
+    const isSecured = await secureEnvironment();
+    if (!isSecured) {
+        await showCustomModal(
+            'Security Protocol Failed',
+            'Could not disable other browser extensions. Please reload the page and try again.'
+        );
+        return;
+    }
+
+    // 3. Double-check for any remaining active/undetected extensions (where technically possible)
     if (detectBrowserExtensions()) {
+        // Stop secure proctoring to restore extensions if check fails
+        window.postMessage({ source: "seep-webpage", type: "STOP_SECURE_EXAM" }, "*");
         await showCustomModal(
             'Security Alert: Browser Extensions Detected',
             'Please disable all restricted browser extensions before starting the exam.'
@@ -359,7 +440,7 @@ window.initiateExamSession = async function(examId) {
         return;
     }
 
-    // Synchronously request fullscreen mode inside the user gesture handler
+    // 4. Synchronously request fullscreen mode inside the user gesture handler
     try {
         if (document.documentElement.requestFullscreen) {
             await document.documentElement.requestFullscreen();
@@ -618,6 +699,9 @@ async function triggerImmediateMalpractice(type, reason) {
     document.removeEventListener('contextmenu', handleContextMenuExam);
     clearInterval(state.timerInterval);
 
+    // Stop secure proctoring to restore extensions
+    window.postMessage({ source: "seep-webpage", type: "STOP_SECURE_EXAM" }, "*");
+
     const examId = state.activeExam.id;
 
     try {
@@ -690,6 +774,9 @@ async function submitExamResults() {
     window.removeEventListener('keydown', handleKeydownExam);
     window.removeEventListener('beforeunload', handleBeforeUnloadExam);
     document.removeEventListener('contextmenu', handleContextMenuExam);
+
+    // Stop secure proctoring to restore extensions
+    window.postMessage({ source: "seep-webpage", type: "STOP_SECURE_EXAM" }, "*");
 
     if (document.fullscreenElement) {
         await document.exitFullscreen().catch(() => {});
@@ -822,7 +909,16 @@ async function fetchTeacherSecurityDashboard() {
             for (let i = 0; i < newCount; i++) {
                 const item = data.violations[i];
                 if (item) {
-                    showToast(`<strong>Malpractice Alert:</strong> ${escapeHtml(item.studentName)} (${escapeHtml(item.studentId || 'N/A')}) flagged for ${escapeHtml(item.type)} in "${escapeHtml(item.examTitle)}"`, 'danger', 8000);
+                    showToast(`
+                        <div class="malpractice-alert-toast" style="display: flex; flex-direction: column; gap: 0.25rem; text-align: left;">
+                            <div style="font-weight: 700; font-size: 0.95rem; margin-bottom: 0.25rem; display: flex; align-items: center; gap: 0.5rem;"><i class="fa-solid fa-triangle-exclamation"></i> MALPRACTICE DETECTED</div>
+                            <div style="font-size: 0.85rem;"><strong>Student Name:</strong> ${escapeHtml(item.studentName)}</div>
+                            <div style="font-size: 0.85rem;"><strong>Student ID:</strong> ${escapeHtml(item.studentId || 'N/A')}</div>
+                            <div style="font-size: 0.85rem;"><strong>Exam Name:</strong> ${escapeHtml(item.examTitle)}</div>
+                            <div style="font-size: 0.85rem;"><strong>Violation Type:</strong> ${escapeHtml(item.type)}</div>
+                            <div style="font-size: 0.85rem;"><strong>Time:</strong> ${new Date(item.reportedAt || item.timestamp).toLocaleString()}</div>
+                        </div>
+                    `, 'danger', 10000);
                 }
             }
             playAlertSound();
@@ -835,7 +931,7 @@ async function fetchTeacherSecurityDashboard() {
             if (!data.violations || data.violations.length === 0) {
                 violationContainer.innerHTML = '<p class="text-muted">No malpractice events recorded.</p>';
             } else {
-                violationContainer.innerHTML = data.violations.slice(0, 8).map(item => `
+                violationContainer.innerHTML = data.violations.map(item => `
                     <div class="added-question-card alert-card" style="border-left: 4px solid var(--danger); background: rgba(239, 68, 68, 0.03); padding: 1rem; margin-bottom: 0.75rem; border-radius: 8px;">
                         <div style="display: flex; justify-content: space-between; align-items: start;">
                             <h4 style="margin: 0; font-size: 0.95rem; font-weight: 600; color: var(--text-primary);">${escapeHtml(item.studentName)}</h4>
@@ -1171,7 +1267,7 @@ async function fetchTeacherSubmissions() {
         submissions.forEach(sub => {
             const isEliminated = sub.status === 'MALPRACTICE';
             const statusBadge = isEliminated 
-                ? `<span class="exam-status-pill" style="background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid #ef4444; margin-left: 0; padding: 0.15rem 0.5rem; font-size: 0.75rem; border-radius: 4px; font-weight: 600;">ELIMINATED</span>`
+                ? `<span class="exam-status-pill" style="background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid #ef4444; margin-left: 0; padding: 0.15rem 0.5rem; font-size: 0.75rem; border-radius: 4px; font-weight: 600;">MALPRACTICE DETECTED</span>`
                 : `<span class="role-pill">${sub.grade}</span> <br><small class="${sub.status === 'PASS' ? 'text-success' : 'text-danger'}" style="font-weight:600;">${sub.status}</small>`;
 
             tbody.innerHTML += `
@@ -1232,7 +1328,7 @@ window.viewSubmissionDetail = async function(sessionKey) {
         
         const isEliminated = sub.status === 'MALPRACTICE';
         const statusText = isEliminated 
-            ? '<span class="text-danger font-bold">[ELIMINATED - MALPRACTICE]</span>' 
+            ? '<span class="text-danger font-bold">[MALPRACTICE DETECTED]</span>' 
             : `<span class="${sub.status === 'PASS' ? 'text-success' : 'text-danger'} font-bold">[${sub.status}]</span>`;
 
         document.getElementById('result-detail-exam').innerHTML = `

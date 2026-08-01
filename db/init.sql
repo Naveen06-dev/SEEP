@@ -101,7 +101,7 @@ CREATE TABLE IF NOT EXISTS results (
     score_obtained NUMERIC(5, 2) NOT NULL CHECK (score_obtained >= 0),
     grade VARCHAR(5) NOT NULL,
     percentile NUMERIC(5, 2) NOT NULL CHECK (percentile >= 0 AND percentile <= 100.0),
-    status VARCHAR(20) NOT NULL DEFAULT 'PENDING_REVIEW' CHECK (status IN ('PASS', 'FAIL', 'PENDING_REVIEW')),
+    status VARCHAR(20) NOT NULL DEFAULT 'PENDING_REVIEW' CHECK (status IN ('PASS', 'FAIL', 'PENDING_REVIEW', 'MALPRACTICE_DETECTED')),
     published_at TIMESTAMP WITH TIME ZONE DEFAULT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT unique_student_exam_result UNIQUE (student_id, exam_id)
@@ -132,6 +132,29 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 12. Malpractice Reports Table
+CREATE TABLE IF NOT EXISTS malpractice_reports (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    session_key VARCHAR(255) NOT NULL,
+    exam_id UUID NOT NULL REFERENCES exams(id) ON DELETE CASCADE,
+    student_id UUID NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+    type VARCHAR(100) NOT NULL,
+    reason TEXT NOT NULL,
+    reported_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    status VARCHAR(50) DEFAULT 'REPORTED'
+);
+
+-- 13. Retest Requests Table
+CREATE TABLE IF NOT EXISTS retest_requests (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    exam_id UUID NOT NULL REFERENCES exams(id) ON DELETE CASCADE,
+    student_id UUID NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+    reason TEXT NOT NULL,
+    status VARCHAR(50) NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'APPROVED', 'DECLINED')),
+    requested_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    processed_at TIMESTAMP WITH TIME ZONE DEFAULT NULL
+);
+
 -- =========================================================================
 -- INDEXES FOR HIGH CONCURRENCY AND READ OPTIMIZATION
 -- =========================================================================
@@ -147,6 +170,8 @@ CREATE INDEX IF NOT EXISTS idx_results_exam_id ON results(exam_id);
 CREATE INDEX IF NOT EXISTS idx_evaluations_answer_id ON evaluations(answer_id);
 CREATE INDEX IF NOT EXISTS idx_evaluations_evaluator_id ON evaluations(evaluator_id);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id);
+CREATE INDEX IF NOT EXISTS idx_malpractice_reports_student_exam ON malpractice_reports(student_id, exam_id);
+CREATE INDEX IF NOT EXISTS idx_retest_requests_student_exam ON retest_requests(student_id, exam_id);
 
 -- Composite and specialized indexes
 CREATE INDEX IF NOT EXISTS idx_exams_start_end ON exams(start_time, end_time);

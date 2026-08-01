@@ -315,7 +315,7 @@ app.post('/api/v1/exams/:id/start', (req, res) => {
     return res.status(400).json({
       status: 'error',
       message: isMalpractice
-        ? 'You have been eliminated from this exam due to malpractice.'
+        ? 'Malpractice detected. You have been disqualified from this exam.'
         : 'You have already submitted this exam.'
     });
   }
