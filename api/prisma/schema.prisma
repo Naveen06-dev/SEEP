@@ -1,0 +1,269 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  TEACHER
+  STUDENT
+}
+
+enum ExamStatus {
+  DRAFT
+  SCHEDULED
+  ACTIVE
+  COMPLETED
+  ARCHIVED
+}
+
+enum AttemptStatus {
+  IN_PROGRESS
+  SUBMITTED
+  MALPRACTICE
+  TIMED_OUT
+}
+
+enum CodingSubmissionStatus {
+  PENDING
+  COMPILED
+  RUNTIME_ERROR
+  ACCEPTED
+  PARTIAL
+  REJECTED
+}
+
+enum ProctorEventType {
+  TAB_SWITCH
+  FULLSCREEN_EXIT
+  COPY_PASTE
+  LANGUAGE_CHANGE
+  RUN_CODE
+  DISCONNECT
+  EXTENSION_DETECTED
+  SUBMIT
+}
+
+enum RetestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  firstName    String   @map("first_name")
+  lastName     String   @map("last_name")
+  role         UserRole
+  department   String?
+  regNo        String?  @map("reg_no")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  examsCreated   Exam[]          @relation("ExamCreator")
+  examAttempts   ExamAttempt[]
+  retestRequests RetestRequest[] @relation("StudentRetest")
+  proctorEvents  ProctorEvent[]
+
+  @@map("users")
+}
+
+model Exam {
+  id                 String     @id @default(uuid())
+  title              String
+  subject            String
+  department         String?
+  durationMinutes    Int        @map("duration_minutes")
+  scheduleStart      DateTime?  @map("schedule_start")
+  scheduleEnd        DateTime?  @map("schedule_end")
+  negativeMarking    Boolean    @default(false) @map("negative_marking")
+  openBook           Boolean    @default(false) @map("open_book")
+  maxAttempts        Int        @default(1) @map("max_attempts")
+  passingPercentage  Float      @default(40) @map("passing_percentage")
+  mcqCount           Int        @default(0) @map("mcq_count")
+  codingCount        Int        @default(0) @map("coding_count")
+  totalMarks         Float      @default(0) @map("total_marks")
+  status             ExamStatus @default(DRAFT)
+  creatorId          String     @map("creator_id")
+  createdAt          DateTime   @default(now()) @map("created_at")
+  updatedAt          DateTime   @updatedAt @map("updated_at")
+
+  creator         User             @relation("ExamCreator", fields: [creatorId], references: [id])
+  mcqQuestions    McqQuestion[]
+  codingQuestions CodingQuestion[]
+  attempts        ExamAttempt[]
+  retestRequests  RetestRequest[]
+
+  @@index([creatorId])
+  @@index([status])
+  @@map("exams")
+}
+
+model McqQuestion {
+  id             String  @id @default(uuid())
+  examId         String  @map("exam_id")
+  sequenceOrder  Int     @map("sequence_order")
+  text           String
+  options        Json
+  correctIndex   Int     @map("correct_index")
+  marks          Float
+  negativeMarks  Float   @default(0) @map("negative_marks")
+  difficulty     String?
+  topic          String?
+
+  exam Exam @relation(fields: [examId], references: [id], onDelete: Cascade)
+
+  @@index([examId])
+  @@map("mcq_questions")
+}
+
+model CodingQuestion {
+  id              String   @id @default(uuid())
+  examId          String   @map("exam_id")
+  sequenceOrder   Int      @map("sequence_order")
+  title           String
+  description     String
+  inputFormat     String   @map("input_format")
+  outputFormat    String   @map("output_format")
+  constraints     String
+  marks           Float
+  timeLimitMs     Int      @default(2000) @map("time_limit_ms")
+  memoryLimitMB   Int      @default(128) @map("memory_limit_mb")
+  allowedLanguages Json    @map("allowed_languages")
+  starterCode     Json     @map("starter_code")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  exam        Exam               @relation(fields: [examId], references: [id], onDelete: Cascade)
+  testCases   CodingTestCase[]
+  submissions CodingSubmission[]
+
+  @@index([examId])
+  @@map("coding_questions")
+}
+
+model CodingTestCase {
+  id               String  @id @default(uuid())
+  codingQuestionId String  @map("coding_question_id")
+  input            String
+  expectedOutput   String  @map("expected_output")
+  isHidden         Boolean @default(false) @map("is_hidden")
+  weight           Float   @default(1)
+
+  codingQuestion CodingQuestion @relation(fields: [codingQuestionId], references: [id], onDelete: Cascade)
+
+  @@index([codingQuestionId])
+  @@map("coding_test_cases")
+}
+
+model ExamAttempt {
+  id              String        @id @default(uuid())
+  examId          String        @map("exam_id")
+  studentId       String        @map("student_id")
+  status          AttemptStatus @default(IN_PROGRESS)
+  mcqScore        Float         @default(0) @map("mcq_score")
+  codingScore     Float         @default(0) @map("coding_score")
+  totalScore      Float         @default(0) @map("total_score")
+  startedAt       DateTime      @default(now()) @map("started_at")
+  submittedAt     DateTime?     @map("submitted_at")
+  malpractice     Boolean       @default(false)
+  malpracticeType String?       @map("malpractice_type")
+
+  exam              Exam               @relation(fields: [examId], references: [id])
+  student           User               @relation(fields: [studentId], references: [id])
+  mcqAnswers        McqAnswer[]
+  codingSubmissions CodingSubmission[]
+  autosaves         CodingAutosave[]
+  proctorEvents     ProctorEvent[]
+
+  @@unique([examId, studentId])
+  @@index([studentId])
+  @@map("exam_attempts")
+}
+
+model McqAnswer {
+  id            String @id @default(uuid())
+  attemptId     String @map("attempt_id")
+  mcqQuestionId String @map("mcq_question_id")
+  selectedIndex Int?   @map("selected_index")
+
+  attempt ExamAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+
+  @@unique([attemptId, mcqQuestionId])
+  @@map("mcq_answers")
+}
+
+model CodingSubmission {
+  id               String                 @id @default(uuid())
+  attemptId        String                 @map("attempt_id")
+  codingQuestionId String                 @map("coding_question_id")
+  language         String
+  sourceCode       String                 @map("source_code")
+  score            Float                  @default(0)
+  passedCases      Int                    @default(0) @map("passed_cases")
+  totalCases       Int                    @default(0) @map("total_cases")
+  executionTimeMs  Int?                   @map("execution_time_ms")
+  memoryKb         Int?                   @map("memory_kb")
+  status           CodingSubmissionStatus @default(PENDING)
+  compileError     String?                @map("compile_error")
+  runtimeError     String?                @map("runtime_error")
+  createdAt        DateTime               @default(now()) @map("created_at")
+
+  attempt        ExamAttempt    @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  codingQuestion CodingQuestion @relation(fields: [codingQuestionId], references: [id])
+
+  @@index([attemptId])
+  @@index([codingQuestionId])
+  @@map("coding_submissions")
+}
+
+model CodingAutosave {
+  id               String   @id @default(uuid())
+  attemptId        String   @map("attempt_id")
+  codingQuestionId String   @map("coding_question_id")
+  language         String
+  sourceCode       String   @map("source_code")
+  cursorPosition   Json?    @map("cursor_position")
+  savedAt          DateTime @default(now()) @map("saved_at")
+
+  attempt ExamAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+
+  @@unique([attemptId, codingQuestionId])
+  @@map("coding_autosaves")
+}
+
+model ProctorEvent {
+  id        String           @id @default(uuid())
+  attemptId String           @map("attempt_id")
+  studentId String           @map("student_id")
+  type      ProctorEventType
+  metadata  Json?
+  createdAt DateTime         @default(now()) @map("created_at")
+
+  attempt ExamAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  student User        @relation(fields: [studentId], references: [id])
+
+  @@index([attemptId])
+  @@map("proctor_events")
+}
+
+model RetestRequest {
+  id          String       @id @default(uuid())
+  examId      String       @map("exam_id")
+  studentId   String       @map("student_id")
+  reason      String
+  status      RetestStatus @default(PENDING)
+  requestedAt DateTime     @default(now()) @map("requested_at")
+  processedAt DateTime?    @map("processed_at")
+
+  exam    Exam @relation(fields: [examId], references: [id])
+  student User @relation("StudentRetest", fields: [studentId], references: [id])
+
+  @@index([examId, studentId])
+  @@map("retest_requests")
+}

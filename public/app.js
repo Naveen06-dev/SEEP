@@ -505,28 +505,102 @@ async function startExamWorkspace() {
 function renderQuestion() {
     const q = state.activeQuestions[state.currentQuestionIdx];
     document.getElementById('current-question-index').innerText = state.currentQuestionIdx + 1;
-    document.getElementById('question-text-display').innerText = q.text;
+    document.getElementById('question-text-display').innerText = q.text || q.title || '';
 
     const workspace = document.getElementById('answer-workspace-area');
-    const savedIndex = state.answers[q.id];
-    let html = '<div class="mcq-options-list">';
 
-    q.options.forEach((opt, idx) => {
-        const label = OPTION_LABELS[idx];
-        const isSelected = savedIndex === idx;
-        html += `
-            <div class="mcq-option-item ${isSelected ? 'selected' : ''}" onclick="selectMcqOption('${q.id}', ${idx})">
-                <input type="radio" name="mcq-${q.id}" ${isSelected ? 'checked' : ''}>
-                <span class="option-label">${label}.</span>
-                <span>${escapeHtml(opt)}</span>
+    if (q.type === 'CODING') {
+        const savedCode = state.answers[q.id] || q.starterCode || 'print(input())\n';
+        const savedLang = state.codingLangs ? state.codingLangs[q.id] || 'python' : 'python';
+
+        workspace.innerHTML = `
+            <div class="coding-workspace" style="display: flex; flex-direction: column; gap: 1rem;">
+                <div style="background: rgba(0,0,0,0.25); padding: 1rem; border-radius: 8px; border: 1px solid var(--glass-border);">
+                    <p style="margin: 0 0 0.5rem 0;">${escapeHtml(q.description || '')}</p>
+                    <div style="font-size: 0.85rem; color: var(--text-secondary); display: flex; gap: 1.5rem;">
+                        <span><strong>Input Format:</strong> ${escapeHtml(q.inputFormat || 'N/A')}</span>
+                        <span><strong>Output Format:</strong> ${escapeHtml(q.outputFormat || 'N/A')}</span>
+                    </div>
+                </div>
+
+                <div style="display: flex; align-items: center; justify-content: space-between;">
+                    <label style="font-size: 0.85rem; color: var(--text-secondary);">Language:
+                        <select id="code-lang-select" onchange="updateCodeLang('${q.id}', this.value)" style="margin-left: 0.5rem; background: rgba(0,0,0,0.4); color: white; border: 1px solid var(--glass-border); padding: 0.25rem 0.5rem; border-radius: 4px;">
+                            <option value="python" ${savedLang === 'python' ? 'selected' : ''}>Python 3</option>
+                            <option value="c" ${savedLang === 'c' ? 'selected' : ''}>C (GCC)</option>
+                            <option value="java" ${savedLang === 'java' ? 'selected' : ''}>Java (OpenJDK)</option>
+                        </select>
+                    </label>
+                    <button class="btn btn-secondary btn-sm" onclick="runStudentCode('${q.id}')">
+                        <i class="fa-solid fa-play text-accent"></i> Run Code
+                    </button>
+                </div>
+
+                <textarea id="code-editor-textarea" rows="10" oninput="saveStudentCode('${q.id}', this.value)" style="width: 100%; font-family: monospace; background: #1e1e2e; color: #a6adc8; border: 1px solid var(--glass-border); border-radius: 8px; padding: 0.75rem; font-size: 0.9rem; line-height: 1.4; outline: none;">${escapeHtml(savedCode)}</textarea>
+
+                <div id="code-console-output" style="background: #11111b; border: 1px solid var(--glass-border); border-radius: 8px; padding: 0.75rem; font-family: monospace; font-size: 0.85rem; min-height: 80px; white-space: pre-wrap; display: none;"></div>
             </div>
         `;
-    });
-
-    html += '</div>';
-    workspace.innerHTML = html;
+    } else {
+        const savedIndex = state.answers[q.id];
+        let html = '<div class="mcq-options-list">';
+        (q.options || []).forEach((opt, idx) => {
+            const label = OPTION_LABELS[idx];
+            const isSelected = savedIndex === idx;
+            html += `
+                <div class="mcq-option-item ${isSelected ? 'selected' : ''}" onclick="selectMcqOption('${q.id}', ${idx})">
+                    <input type="radio" name="mcq-${q.id}" ${isSelected ? 'checked' : ''}>
+                    <span class="option-label">${label}.</span>
+                    <span>${escapeHtml(opt)}</span>
+                </div>
+            `;
+        });
+        html += '</div>';
+        workspace.innerHTML = html;
+    }
     renderPalette();
 }
+
+window.saveStudentCode = function(questionId, code) {
+    state.answers[questionId] = code;
+    syncAnswersWithServer();
+};
+
+window.updateCodeLang = function(questionId, lang) {
+    if (!state.codingLangs) state.codingLangs = {};
+    state.codingLangs[questionId] = lang;
+};
+
+window.runStudentCode = async function(questionId) {
+    const q = state.activeQuestions.find(item => item.id === questionId);
+    const code = state.answers[questionId] || q.starterCode || '';
+    const lang = state.codingLangs ? state.codingLangs[questionId] || 'python' : 'python';
+    const consoleEl = document.getElementById('code-console-output');
+    consoleEl.style.display = 'block';
+    consoleEl.innerHTML = '<span class="text-accent"><i class="fa-solid fa-spinner fa-spin"></i> Compiling & Executing...</span>';
+
+    try {
+        const res = await fetch(`${BASE_URL}/api/v1/compiler/run`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ language: lang, sourceCode: code, stdin: q.sampleInput || '' })
+        });
+        const data = await res.json();
+        if (data.status === 'success') {
+            if (data.compileError) {
+                consoleEl.innerHTML = `<span class="text-danger">Compile Error:\n${escapeHtml(data.compileError)}</span>`;
+            } else if (data.runtimeError) {
+                consoleEl.innerHTML = `<span class="text-danger">Runtime Error:\n${escapeHtml(data.runtimeError)}</span>`;
+            } else {
+                consoleEl.innerHTML = `<span class="text-success">Output:\n${escapeHtml(data.stdout)}</span>\n<small class="text-muted">Execution time: ${data.executionTimeMs}ms</small>`;
+            }
+        } else {
+            consoleEl.innerHTML = `<span class="text-danger">Execution failed: ${escapeHtml(data.message)}</span>`;
+        }
+    } catch (err) {
+        consoleEl.innerHTML = `<span class="text-danger">Network error during execution.</span>`;
+    }
+};
 
 window.selectMcqOption = function(questionId, optionIndex) {
     state.answers[questionId] = optionIndex;
@@ -1127,6 +1201,59 @@ document.getElementById('teacher-add-question-form').addEventListener('submit', 
         await loadDraftQuestions();
     } catch (err) {
         showToast('Failed to add question.', 'danger');
+    }
+});
+
+window.toggleQuestionTypeFields = function() {
+    const type = document.getElementById('question-type-select').value;
+    const mcqForm = document.getElementById('teacher-add-question-form');
+    const codingForm = document.getElementById('teacher-add-coding-form');
+    if (type === 'CODING') {
+        mcqForm.style.display = 'none';
+        codingForm.style.display = 'block';
+    } else {
+        mcqForm.style.display = 'block';
+        codingForm.style.display = 'none';
+    }
+};
+
+document.getElementById('teacher-add-coding-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!state.activeDraftExamId) {
+        showToast('Create an exam first.', 'warning');
+        return;
+    }
+
+    const payload = {
+        type: 'CODING',
+        title: document.getElementById('coding-title-input').value.trim(),
+        description: document.getElementById('coding-desc-input').value.trim(),
+        inputFormat: document.getElementById('coding-input-format').value.trim(),
+        outputFormat: document.getElementById('coding-output-format').value.trim(),
+        marks: parseFloat(document.getElementById('coding-marks-input').value) || 10,
+        sampleInput: document.getElementById('coding-sample-in').value,
+        sampleOutput: document.getElementById('coding-sample-out').value,
+        hiddenInput: document.getElementById('coding-hidden-in').value,
+        hiddenOutput: document.getElementById('coding-hidden-out').value
+    };
+
+    try {
+        const res = await fetch(`${BASE_URL}/api/v1/teacher/exams/${state.activeDraftExamId}/questions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (data.status === 'error') {
+            showToast(data.message, 'danger');
+            return;
+        }
+
+        document.getElementById('teacher-add-coding-form').reset();
+        showToast('Coding question added.', 'success');
+        await loadDraftQuestions();
+    } catch (err) {
+        showToast('Failed to add coding question.', 'danger');
     }
 });
 
