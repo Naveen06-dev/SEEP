@@ -14,6 +14,25 @@ export function createApp() {
 
   app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
+  app.post('/api/v1/auth/login', (req, res) => {
+    const { email, password } = req.body || {};
+    if (!email || !password) {
+      return res.status(400).json({ status: 'error', message: 'Email and password are required.' });
+    }
+    const role = email.includes('teacher') ? 'TEACHER' : email.includes('admin') ? 'ADMIN' : 'STUDENT';
+    const name = email.split('@')[0];
+    return res.json({
+      status: 'success',
+      token: `token-${Date.now()}`,
+      user: {
+        id: `user-${role.toLowerCase()}-1`,
+        name: name.charAt(0).toUpperCase() + name.slice(1),
+        email,
+        role
+      }
+    });
+  });
+
   app.use('/api/exams', examRoutes);
   app.use('/api/coding', codingRoutes);
   app.use('/api/attempts', attemptRoutes);

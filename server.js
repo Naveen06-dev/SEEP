@@ -206,6 +206,59 @@ app.post('/api/v1/teacher/exams', (req, res) => {
   res.status(201).json({ status: 'success', exam });
 });
 
+app.post('/api/exams', (req, res) => {
+  const { title, subject, department, durationMinutes, mcqCount, codingCount, creatorId } = req.body;
+  const exam = {
+    id: generateId('exam'),
+    title: title || 'New Exam',
+    subject: subject || 'General',
+    department: department || 'General',
+    durationMinutes: durationMinutes || 60,
+    mcqCount: mcqCount || 0,
+    codingCount: codingCount || 0,
+    creatorId: creatorId || 'teacher-1',
+    status: 'DRAFT',
+    createdAt: new Date().toISOString()
+  };
+  db.exams.push(exam);
+  db.questions[exam.id] = [];
+  res.status(201).json(exam);
+});
+
+app.post('/api/exams/:id/mcq', (req, res) => {
+  const examId = req.params.id;
+  const questions = req.body.questions || [];
+  if (!db.questions[examId]) {
+    db.questions[examId] = [];
+  }
+  db.questions[examId].push(...questions);
+  res.status(200).json({ status: 'success', questions: db.questions[examId] });
+});
+
+app.post('/api/exams/:id/publish', (req, res) => {
+  const examId = req.params.id;
+  const exam = db.exams.find(e => e.id === examId);
+  if (exam) {
+    exam.status = 'ACTIVE';
+  }
+  res.status(200).json({ status: 'success', message: 'Exam published' });
+});
+
+app.post('/api/coding/questions', (req, res) => {
+  const { examId, title, description, marks } = req.body;
+  const question = {
+    id: generateId('qcode'),
+    examId,
+    type: 'CODING',
+    title: title || 'Coding Problem',
+    description: description || '',
+    marks: marks || 10
+  };
+  if (!db.questions[examId]) db.questions[examId] = [];
+  db.questions[examId].push(question);
+  res.status(201).json(question);
+});
+
 app.get('/api/v1/teacher/exams/:id/questions', (req, res) => {
   const questions = db.questions[req.params.id] || [];
   res.json({ status: 'success', questions });
