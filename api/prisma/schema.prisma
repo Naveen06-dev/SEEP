@@ -173,6 +173,7 @@ model ExamAttempt {
   submittedAt     DateTime?     @map("submitted_at")
   malpractice     Boolean       @default(false)
   malpracticeType String?       @map("malpractice_type")
+  resultVisible   Boolean       @default(false) @map("result_visible")
 
   exam              Exam               @relation(fields: [examId], references: [id])
   student           User               @relation(fields: [studentId], references: [id])

@@ -289,18 +289,9 @@
 
                     <div id="question-builder-section" style="display: none;">
                         <hr class="form-divider">
-                        <h4 class="form-section-heading">Step 2 — Add Question</h4>
+                        <h4 class="form-section-heading">Step 2 — Add MCQ Question</h4>
                         <p class="active-exam-label">Active exam: <strong id="active-exam-label">—</strong></p>
 
-                        <div class="form-group" style="margin-bottom: 1rem;">
-                            <label for="question-type-select">Question Type</label>
-                            <select id="question-type-select" onchange="toggleQuestionTypeFields()">
-                                <option value="MCQ">Multiple Choice Question (MCQ)</option>
-                                <option value="CODING">Coding Problem (C / Java / Python)</option>
-                            </select>
-                        </div>
-
-                        <!-- MCQ FORM -->
                         <form id="teacher-add-question-form" class="teacher-form">
                             <div class="form-group">
                                 <label for="question-text-input">Question Text</label>
@@ -344,54 +335,7 @@
                             </div>
 
                             <button type="submit" class="btn btn-primary">
-                                <i class="fa-solid fa-plus"></i> Add MCQ Question
-                            </button>
-                        </form>
-
-                        <!-- CODING QUESTION FORM -->
-                        <form id="teacher-add-coding-form" class="teacher-form" style="display: none;">
-                            <div class="form-group">
-                                <label for="coding-title-input">Problem Title</label>
-                                <input type="text" id="coding-title-input" required placeholder="e.g. Sum of Two Integers">
-                            </div>
-                            <div class="form-group">
-                                <label for="coding-desc-input">Problem Description</label>
-                                <textarea id="coding-desc-input" rows="3" required placeholder="Write a program that reads two integers and prints their sum."></textarea>
-                            </div>
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label for="coding-input-format">Input Format</label>
-                                    <input type="text" id="coding-input-format" placeholder="Two space-separated integers">
-                                </div>
-                                <div class="form-group">
-                                    <label for="coding-output-format">Output Format</label>
-                                    <input type="text" id="coding-output-format" placeholder="Single integer output">
-                                </div>
-                            </div>
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label for="coding-marks-input">Marks</label>
-                                    <input type="number" id="coding-marks-input" value="10" min="1">
-                                </div>
-                                <div class="form-group">
-                                    <label for="coding-sample-in">Sample Testcase Input</label>
-                                    <input type="text" id="coding-sample-in" placeholder="5 10">
-                                </div>
-                                <div class="form-group">
-                                    <label for="coding-sample-out">Sample Testcase Output</label>
-                                    <input type="text" id="coding-sample-out" placeholder="15">
-                                </div>
-                            </div>
-                            <div class="form-group">
-                                <label for="coding-hidden-in">Hidden Testcase Input</label>
-                                <input type="text" id="coding-hidden-in" placeholder="100 200">
-                            </div>
-                            <div class="form-group">
-                                <label for="coding-hidden-out">Hidden Testcase Output</label>
-                                <input type="text" id="coding-hidden-out" placeholder="300">
-                            </div>
-                            <button type="submit" class="btn btn-primary">
-                                <i class="fa-solid fa-code"></i> Add Coding Question
+                                <i class="fa-solid fa-plus"></i> Add Question
                             </button>
                         </form>
 

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '../lib/prisma.js';
-import { saveCodingQuestion, runVisibleTestCases, submitCodingAnswer, getCodingQuestionForStudent } from '../services/codingService.js';
+import { runVisibleTestCases, submitCodingAnswer, getCodingQuestionForStudent } from '../services/codingService.js';
+import { saveCodingQuestion } from '../services/examService.js';
 
 const router = Router();
 

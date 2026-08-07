@@ -2,42 +2,6 @@ import { prisma } from '../lib/prisma.js';
 import { executeCode } from './codeRunnerClient.js';
 import { outputsMatch, calculateWeightedScore } from '../lib/output.js';
 
-export async function saveCodingQuestion(examId, payload) {
-  const { testCases, ...questionData } = payload;
-  const question = await prisma.codingQuestion.create({
-    data: {
-      examId,
-      sequenceOrder: questionData.sequenceOrder || 1,
-      title: questionData.title,
-      description: questionData.description,
-      inputFormat: questionData.inputFormat,
-      outputFormat: questionData.outputFormat,
-      constraints: questionData.constraints,
-      marks: questionData.marks || 10,
-      timeLimitMs: questionData.timeLimitMs || 2000,
-      memoryLimitMB: questionData.memoryLimitMB || 128,
-      allowedLanguages: questionData.allowedLanguages || ['c', 'java', 'python'],
-      starterCode: questionData.starterCode || {},
-      testCases: testCases ? {
-        create: testCases.map(tc => ({
-          input: tc.input,
-          expectedOutput: tc.expectedOutput,
-          isHidden: tc.isHidden || false,
-          weight: tc.weight || 1
-        }))
-      } : undefined
-    },
-    include: { testCases: true }
-  });
-
-  await prisma.exam.update({
-    where: { id: examId },
-    data: { codingCount: { increment: 1 } }
-  });
-
-  return question;
-}
-
 export async function getCodingQuestionForStudent(questionId) {
   const question = await prisma.codingQuestion.findUnique({
     where: { id: questionId },

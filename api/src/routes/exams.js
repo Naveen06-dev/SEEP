@@ -11,6 +11,21 @@ import { getCodingAnalytics } from '../services/codingService.js';
 
 const router = Router();
 
+router.get('/', async (req, res) => {
+  try {
+    const exams = await prisma.exam.findMany({
+      include: {
+        mcqQuestions: true,
+        codingQuestions: { include: { testCases: true } }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+    res.json(exams);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 router.post('/', async (req, res) => {
   try {
     const creatorId = req.body.creatorId || req.user?.id;

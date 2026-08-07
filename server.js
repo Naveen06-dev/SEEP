@@ -41,12 +41,6 @@ const db = {
   ]
 };
 
-const { execFile } = require('child_process');
-const fs = require('fs');
-const os = require('os');
-const { promisify } = require('util');
-const execFileAsync = promisify(execFile);
-
 function logAction(userEmail, action, details) {
   const log = { timestamp: new Date().toISOString(), user: userEmail, action, details };
   db.auditLogs.unshift(log);
@@ -206,59 +200,6 @@ app.post('/api/v1/teacher/exams', (req, res) => {
   res.status(201).json({ status: 'success', exam });
 });
 
-app.post('/api/exams', (req, res) => {
-  const { title, subject, department, durationMinutes, mcqCount, codingCount, creatorId } = req.body;
-  const exam = {
-    id: generateId('exam'),
-    title: title || 'New Exam',
-    subject: subject || 'General',
-    department: department || 'General',
-    durationMinutes: durationMinutes || 60,
-    mcqCount: mcqCount || 0,
-    codingCount: codingCount || 0,
-    creatorId: creatorId || 'teacher-1',
-    status: 'DRAFT',
-    createdAt: new Date().toISOString()
-  };
-  db.exams.push(exam);
-  db.questions[exam.id] = [];
-  res.status(201).json(exam);
-});
-
-app.post('/api/exams/:id/mcq', (req, res) => {
-  const examId = req.params.id;
-  const questions = req.body.questions || [];
-  if (!db.questions[examId]) {
-    db.questions[examId] = [];
-  }
-  db.questions[examId].push(...questions);
-  res.status(200).json({ status: 'success', questions: db.questions[examId] });
-});
-
-app.post('/api/exams/:id/publish', (req, res) => {
-  const examId = req.params.id;
-  const exam = db.exams.find(e => e.id === examId);
-  if (exam) {
-    exam.status = 'ACTIVE';
-  }
-  res.status(200).json({ status: 'success', message: 'Exam published' });
-});
-
-app.post('/api/coding/questions', (req, res) => {
-  const { examId, title, description, marks } = req.body;
-  const question = {
-    id: generateId('qcode'),
-    examId,
-    type: 'CODING',
-    title: title || 'Coding Problem',
-    description: description || '',
-    marks: marks || 10
-  };
-  if (!db.questions[examId]) db.questions[examId] = [];
-  db.questions[examId].push(question);
-  res.status(201).json(question);
-});
-
 app.get('/api/v1/teacher/exams/:id/questions', (req, res) => {
   const questions = db.questions[req.params.id] || [];
   res.json({ status: 'success', questions });
@@ -269,32 +210,6 @@ app.post('/api/v1/teacher/exams/:id/questions', (req, res) => {
   const exam = db.exams.find(e => e.id === examId);
   if (!exam) {
     return res.status(404).json({ status: 'error', message: 'Exam not found.' });
-  }
-
-  if (req.body.type === 'CODING') {
-    const { title, description, inputFormat, outputFormat, marks, sampleInput, sampleOutput, hiddenInput, hiddenOutput } = req.body;
-    if (!title || !description) {
-      return res.status(400).json({ status: 'error', message: 'Title and description are required for coding questions.' });
-    }
-    const question = {
-      id: generateId('qcode'),
-      examId,
-      type: 'CODING',
-      title: title.trim(),
-      description: description.trim(),
-      inputFormat: (inputFormat || '').trim(),
-      outputFormat: (outputFormat || '').trim(),
-      marks: parseFloat(marks) || 10,
-      sampleInput: (sampleInput || '').trim(),
-      sampleOutput: (sampleOutput || '').trim(),
-      hiddenInput: (hiddenInput || '').trim(),
-      hiddenOutput: (hiddenOutput || '').trim(),
-      starterCode: 'print(input())\n'
-    };
-    db.questions[examId].push(question);
-    recalculateExamMarks(examId);
-    logAction(exam.teacherName, 'CODING_QUESTION_ADDED', `Exam: ${exam.title} | ${question.title}`);
-    return res.status(201).json({ status: 'success', question, exam });
   }
 
   const { text, options, correctIndex, marks } = req.body;
@@ -502,7 +417,7 @@ app.get('/api/v1/teacher/malpractice', (req, res) => {
   res.json({ status: 'success', reports });
 });
 
-app.post('/api/v1/exams/:id/submit', async (req, res) => {
+app.post('/api/v1/exams/:id/submit', (req, res) => {
   const examId = req.params.id;
   const { studentId, malpractice, malpracticeReason, malpracticeType } = req.body;
   const sessionKey = `${examId}:::${studentId}`;
@@ -519,57 +434,26 @@ app.post('/api/v1/exams/:id/submit', async (req, res) => {
   let obtainedScore = 0;
   const gradingDetails = [];
 
-  for (const q of questions) {
-    if (q.type === 'CODING') {
-      const code = studentAnswers[q.id] || '';
-      const testCases = [];
-      if (q.sampleInput) testCases.push({ input: q.sampleInput, expectedOutput: q.sampleOutput, weight: 1 });
-      if (q.hiddenInput) testCases.push({ input: q.hiddenInput, expectedOutput: q.hiddenOutput, weight: 2 });
+  questions.forEach(q => {
+    const answerIndex = studentAnswers[q.id] !== undefined ? parseInt(studentAnswers[q.id], 10) : -1;
+    const result = gradeMcqAnswer(q, answerIndex);
+    obtainedScore += result.score;
 
-      let passedCount = 0;
-      let totalWeight = 0;
-      let passedWeight = 0;
-
-      for (const tc of testCases) {
-        totalWeight += tc.weight;
-        const exec = await executeCodeSandbox('python', code, tc.input);
-        if (!exec.compileError && !exec.runtimeError && compareOutputs(exec.stdout, tc.expectedOutput)) {
-          passedCount++;
-          passedWeight += tc.weight;
-        }
-      }
-
-      const qScore = totalWeight > 0 ? (passedWeight / totalWeight) * q.marks : 0;
-      obtainedScore += qScore;
-      gradingDetails.push({
-        questionId: q.id,
-        questionText: q.title || 'Coding Problem',
-        isCorrect: passedCount === testCases.length,
-        score: Math.round(qScore * 100) / 100,
-        maxScore: q.marks,
-        feedback: `Passed ${passedCount}/${testCases.length} test cases.`
-      });
-    } else {
-      const answerIndex = studentAnswers[q.id] !== undefined ? parseInt(studentAnswers[q.id], 10) : -1;
-      const result = gradeMcqAnswer(q, answerIndex);
-      obtainedScore += result.score;
-
-      gradingDetails.push({
-        questionId: q.id,
-        questionText: q.text,
-        options: q.options,
-        submittedAnswerIndex: answerIndex,
-        submittedAnswer: result.selectedText || 'No response',
-        submittedOption: result.selectedOption,
-        correctOption: result.correctOption,
-        correctAnswer: result.correctText,
-        isCorrect: result.isCorrect,
-        score: result.score,
-        maxScore: q.marks,
-        feedback: result.feedback
-      });
-    }
-  }
+    gradingDetails.push({
+      questionId: q.id,
+      questionText: q.text,
+      options: q.options,
+      submittedAnswerIndex: answerIndex,
+      submittedAnswer: result.selectedText || 'No response',
+      submittedOption: result.selectedOption,
+      correctOption: result.correctOption,
+      correctAnswer: result.correctText,
+      isCorrect: result.isCorrect,
+      score: result.score,
+      maxScore: q.marks,
+      feedback: result.feedback
+    });
+  });
 
   const passingScore = exam.totalMarks * (exam.passingPercentage / 100);
   const percentage = exam.totalMarks > 0 ? (obtainedScore / exam.totalMarks) * 100 : 0;
@@ -840,121 +724,6 @@ app.get('/api/v1/student/retest-requests/:studentId', (req, res) => {
   const requests = db.retestRequests.filter(r => r.studentId === studentId);
   res.json({ status: 'success', requests });
 });
-
-// =========================================================================
-// CODING COMPILER & EXECUTION ENGINE
-// =========================================================================
-
-function normalizeText(str) {
-  if (str == null) return '';
-  return String(str).replace(/\r\n/g, '\n').split('\n').map(l => l.trimEnd()).join('\n').trim();
-}
-
-function compareOutputs(actual, expected) {
-  const a = normalizeText(actual);
-  const e = normalizeText(expected);
-  if (a === e) return true;
-  const aLines = a.split('\n');
-  const eLines = e.split('\n');
-  if (aLines.length !== eLines.length) return false;
-  return aLines.every((line, i) => {
-    const al = line.trim();
-    const el = eLines[i].trim();
-    if (al === el) return true;
-    const an = Number(al);
-    const en = Number(el);
-    if (!Number.isNaN(an) && !Number.isNaN(en)) {
-      return Math.abs(an - en) <= 1e-6;
-    }
-    return false;
-  });
-}
-
-async function executeCodeSandbox(language, sourceCode, stdin = '') {
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'seep-code-'));
-  const filenames = { c: 'main.c', java: 'Main.java', python: 'main.py' };
-  const filename = filenames[language] || 'main.txt';
-  const filePath = path.join(tempDir, filename);
-  fs.writeFileSync(filePath, sourceCode);
-
-  const start = Date.now();
-  try {
-    if (language === 'python') {
-      const res = await execFileAsync('python3', [filePath], { input: stdin, timeout: 5000 });
-      return { stdout: res.stdout || '', stderr: res.stderr || '', compileError: null, runtimeError: null, executionTimeMs: Date.now() - start, memoryKb: 4096 };
-    } else if (language === 'c') {
-      const binPath = path.join(tempDir, 'main');
-      await execFileAsync('gcc', [filePath, '-O2', '-o', binPath]);
-      const res = await execFileAsync(binPath, [], { input: stdin, timeout: 5000 });
-      return { stdout: res.stdout || '', stderr: res.stderr || '', compileError: null, runtimeError: null, executionTimeMs: Date.now() - start, memoryKb: 2048 };
-    } else if (language === 'java') {
-      await execFileAsync('javac', [filePath], { cwd: tempDir });
-      const res = await execFileAsync('java', ['-cp', tempDir, 'Main'], { input: stdin, timeout: 5000 });
-      return { stdout: res.stdout || '', stderr: res.stderr || '', compileError: null, runtimeError: null, executionTimeMs: Date.now() - start, memoryKb: 16384 };
-    } else {
-      throw new Error(`Unsupported language: ${language}`);
-    }
-  } catch (err) {
-    const isCompile = err.cmd && (err.cmd.includes('gcc') || err.cmd.includes('javac'));
-    return {
-      stdout: err.stdout || '',
-      stderr: err.stderr || '',
-      compileError: isCompile ? (err.stderr || err.message) : null,
-      runtimeError: !isCompile ? (err.stderr || err.message) : null,
-      executionTimeMs: Date.now() - start,
-      memoryKb: 0
-    };
-  } finally {
-    fs.rmSync(tempDir, { recursive: true, force: true });
-  }
-}
-
-app.post('/api/v1/compiler/run', async (req, res) => {
-  try {
-    const { language, sourceCode, stdin } = req.body;
-    if (!language || !sourceCode) return res.status(400).json({ status: 'error', message: 'Language and source code required' });
-    const result = await executeCodeSandbox(language, sourceCode, stdin || '');
-    res.json({ status: 'success', ...result });
-  } catch (e) {
-    res.status(500).json({ status: 'error', message: e.message });
-  }
-});
-
-app.post('/api/v1/compiler/submit', async (req, res) => {
-  try {
-    const { language, sourceCode, testCases, maxMarks = 10 } = req.body;
-    if (!language || !sourceCode || !Array.isArray(testCases)) {
-      return res.status(400).json({ status: 'error', message: 'Missing parameters' });
-    }
-
-    let passedCount = 0;
-    let totalWeight = 0;
-    let passedWeight = 0;
-
-    for (const tc of testCases) {
-      const weight = tc.weight || 1;
-      totalWeight += weight;
-      const exec = await executeCodeSandbox(language, sourceCode, tc.input || '');
-      const matched = compareOutputs(exec.stdout, tc.expectedOutput);
-      if (matched && !exec.compileError && !exec.runtimeError) {
-        passedCount++;
-        passedWeight += weight;
-      }
-    }
-
-    const score = totalWeight > 0 ? (passedWeight / totalWeight) * maxMarks : 0;
-    res.json({
-      status: 'success',
-      score: Math.round(score * 100) / 100,
-      maxScore: maxMarks,
-      passedCases: passedCount,
-      totalCases: testCases.length
-    });
-  } catch (e) {
-    res.status(500).json({ status: 'error', message: e.message });
-  }
-});
-
 
 // =========================================================================
 // ADMIN

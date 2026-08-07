@@ -26,7 +26,7 @@ export function Login() {
       localStorage.setItem('seep_user', JSON.stringify(data.user));
 
       if (data.user.role === 'TEACHER' || data.user.role === 'ADMIN') {
-        navigate('/teacher/exams/new');
+        navigate('/teacher/profile');
       } else {
         navigate('/student/dashboard');
       }
