@@ -224,7 +224,7 @@ export function AddQuestionPaper() {
   };
 
   const handleFinishExam = () => {
-    alert('Question paper saved successfully in DRAFT status!');
+    alert('Question paper saved successfully! Submitted for Admin approval & publication.');
     navigate('/teacher/exams');
   };
 

@@ -10,6 +10,9 @@ import { AddQuestionPaper } from './components/teacher/AddQuestionPaper';
 import { QuestionPapersList } from './components/teacher/QuestionPapersList';
 import { StudentResults } from './components/teacher/StudentResults';
 import { TeacherCodingAnalytics } from './components/TeacherCodingAnalytics';
+import { AdminDashboard } from './components/admin/AdminDashboard';
+import { AdminLayout } from './components/admin/AdminLayout';
+import { StudentLayout } from './components/student/StudentLayout';
 import './styles.css';
 
 function Home() {
@@ -24,8 +27,17 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         <Route path="/login" element={<Login />} />
 
         {/* Student Routes */}
-        <Route path="/student/dashboard" element={<StudentDashboard />} />
+        <Route path="/student" element={<StudentLayout />}>
+          <Route index element={<Navigate to="/student/dashboard" replace />} />
+          <Route path="dashboard" element={<StudentDashboard />} />
+        </Route>
         <Route path="/student/exam/:examId" element={<StudentExamPlayer />} />
+
+        {/* Admin Portal Routes */}
+        <Route path="/admin" element={<AdminLayout />}>
+          <Route index element={<Navigate to="/admin/dashboard" replace />} />
+          <Route path="dashboard" element={<AdminDashboard />} />
+        </Route>
 
         {/* Teacher Dashboard Nested Routes */}
         <Route path="/teacher" element={<TeacherLayout />}>

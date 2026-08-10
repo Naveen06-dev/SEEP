@@ -74,57 +74,68 @@ export function StudentExamPlayer() {
     return () => clearTimeout(timer);
   }, [phase, countdown]);
 
-  /* ── 3. Fullscreen & Proctoring Tab Switch Protection ── */
+  /* ── 3. Fullscreen & Proctoring Protection ── */
   useEffect(() => {
     if (phase !== 'exam') return;
 
-    // Trigger Fullscreen
+    // Force Fullscreen
     if (document.documentElement.requestFullscreen) {
       document.documentElement.requestFullscreen().catch(() => {});
     }
 
     const handleVisibilityChange = () => {
       if (document.hidden) {
-        setTabSwitchCount((prev) => {
-          const nextCount = prev + 1;
+        handleMalpracticeTermination('TAB_SWITCH');
+      }
+    };
 
-          // Notify backend of proctoring event
-          if (attemptId && !attemptId.startsWith('demo-')) {
-            api(`/api/attempts/${attemptId}/proctor`, {
-              method: 'POST',
-              body: JSON.stringify({ type: 'TAB_SWITCH', metadata: { count: nextCount } })
-            }).catch(() => {});
-          }
+    const handleFullscreenChange = () => {
+      if (!document.fullscreenElement) {
+        handleMalpracticeTermination('FULLSCREEN_EXIT');
+      }
+    };
 
-          if (nextCount === 1) {
-            setWarningModalOpen(true);
-          } else if (nextCount > 1) {
-            // Terminate test due to malpractice (more than 1 tab switch)
-            handleMalpracticeTermination();
-          }
-
-          return nextCount;
-        });
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' || e.key === 'Esc') {
+        e.preventDefault();
+        handleMalpracticeTermination('ESC_KEY');
       }
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    window.addEventListener('keydown', handleKeyDown);
+
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [phase, attemptId]);
+  }, [phase, attemptId, exam]);
 
-  const handleMalpracticeTermination = async () => {
+  const handleMalpracticeTermination = async (reason: string = 'FULLSCREEN_EXIT') => {
     if (document.fullscreenElement) {
       document.exitFullscreen().catch(() => {});
     }
-    alert('⛔ EXAM TERMINATED!\nMultiple tab switches detected (Malpractice). Your exam session has been locked and submitted.');
-    if (attemptId && !attemptId.startsWith('demo-')) {
-      await api(`/api/attempts/${attemptId}/submit`, {
+
+    const userStr = localStorage.getItem('seep_user');
+    const u = userStr ? JSON.parse(userStr) : {};
+
+    // Notify backend proctoring service (which alerts both Admin & Teacher)
+    if (attemptId) {
+      await api(`/api/attempts/${attemptId}/proctor`, {
         method: 'POST',
-        body: JSON.stringify({ mcqAnswers })
+        body: JSON.stringify({
+          studentId: u.id || 'student-1',
+          studentName: `${u.firstName || 'Student'} ${u.lastName || ''}`.trim(),
+          regNo: u.regNo || 'CS2026001',
+          examTitle: exam?.title || 'Examination',
+          type: reason
+        })
       }).catch(() => {});
     }
+
+    alert(`⛔ EXAM TERMINATED DUE TO PROCTORING VIOLATION!\nViolation: ${reason === 'ESC_KEY' ? 'Esc key pressed' : reason === 'FULLSCREEN_EXIT' ? 'Exited fullscreen mode' : 'Tab switch detected'}.\nYour session is locked. A malpractice report has been sent to the Admin & Teacher.`);
     navigate('/student/dashboard');
   };
 

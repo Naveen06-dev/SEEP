@@ -6,6 +6,7 @@ import examRoutes from './routes/exams.js';
 import codingRoutes from './routes/coding.js';
 import attemptRoutes from './routes/attempts.js';
 import teacherRoutes from './routes/teacher.js';
+import adminRoutes from './routes/admin.js';
 import { prisma } from './lib/prisma.js';
 
 export function createApp() {
@@ -53,7 +54,7 @@ export function createApp() {
         }
       });
     } catch (e) {
-      const role = email.includes('teacher') ? 'TEACHER' : 'STUDENT';
+      const role = email.includes('admin') ? 'ADMIN' : email.includes('teacher') ? 'TEACHER' : 'STUDENT';
       const name = email.split('@')[0];
       return res.json({
         status: 'success',
@@ -68,6 +69,7 @@ export function createApp() {
   app.use('/api/coding', codingRoutes);
   app.use('/api/attempts', attemptRoutes);
   app.use('/api/teacher', teacherRoutes);
+  app.use('/api/admin', adminRoutes);
 
   app.use((err, _req, res, _next) => {
     console.error(err);

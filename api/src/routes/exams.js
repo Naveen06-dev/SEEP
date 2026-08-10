@@ -7,19 +7,14 @@ import {
   publishExam,
   getExamForStudent
 } from '../services/examService.js';
+import { getTeacherExams, getTeacherExamById } from '../services/teacherService.js';
 import { getCodingAnalytics } from '../services/codingService.js';
 
 const router = Router();
 
 router.get('/', async (req, res) => {
   try {
-    const exams = await prisma.exam.findMany({
-      include: {
-        mcqQuestions: true,
-        codingQuestions: { include: { testCases: true } }
-      },
-      orderBy: { createdAt: 'desc' }
-    });
+    const exams = await getTeacherExams('all');
     res.json(exams);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -38,18 +33,13 @@ router.post('/', async (req, res) => {
 });
 
 router.get('/:id', async (req, res) => {
-  const exam = await prisma.exam.findUnique({
-    where: { id: req.params.id },
-    include: {
-      mcqQuestions: { orderBy: { sequenceOrder: 'asc' } },
-      codingQuestions: {
-        orderBy: { sequenceOrder: 'asc' },
-        include: { testCases: true }
-      }
-    }
-  });
-  if (!exam) return res.status(404).json({ error: 'Exam not found' });
-  res.json(exam);
+  try {
+    const exam = await getTeacherExamById(req.params.id);
+    if (!exam) return res.status(404).json({ error: 'Exam not found' });
+    res.json(exam);
+  } catch (e) {
+    res.status(404).json({ error: e.message });
+  }
 });
 
 router.put('/:id', async (req, res) => {

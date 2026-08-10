@@ -105,10 +105,12 @@ router.delete('/questions/:id', async (req, res) => {
 
 router.post('/exams/:id/publish', async (req, res) => {
   try {
-    const published = await publishExam(req.params.id);
+    const role = req.headers['x-user-role'] || req.user?.role || 'TEACHER';
+    const published = await publishExam(req.params.id, role);
     res.json(published);
   } catch (e) {
-    res.status(400).json({ error: e.message });
+    const status = e.status || (e.message.includes('Only Administrators') ? 403 : 400);
+    res.status(status).json({ error: e.message });
   }
 });
 

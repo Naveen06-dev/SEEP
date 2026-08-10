@@ -17,6 +17,7 @@ type AttemptResult = {
 
 export function StudentResults() {
   const [results, setResults] = useState<AttemptResult[]>([]);
+  const [retestRequests, setRetestRequests] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedAttempt, setSelectedAttempt] = useState<any | null>(null);
 
@@ -28,10 +29,23 @@ export function StudentResults() {
     try {
       const data = await api<AttemptResult[]>('/api/teacher/results');
       setResults(data);
+
+      const retestData = await api<any>('/api/attempts/retest-requests').catch(() => ({ requests: [] }));
+      setRetestRequests(retestData.requests || []);
     } catch (err) {
       console.error('Failed to load teacher results', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleResetTestByTeacher = async (reqId: string) => {
+    try {
+      await api(`/api/attempts/retest-requests/${reqId}/reset-teacher`, { method: 'POST' });
+      alert('Test attempt reset successfully! The student can now re-enter and attempt the exam.');
+      loadResults();
+    } catch (err: any) {
+      alert(err.message || 'Failed to reset test attempt');
     }
   };
 
@@ -67,6 +81,33 @@ export function StudentResults() {
           Evaluate student attempt submissions, proctoring violations, and control result publication visibility
         </p>
       </div>
+
+      {/* Admin-Approved Retest Requests Section */}
+      {retestRequests.some((r) => r.status === 'APPROVED_BY_ADMIN') && (
+        <div style={{ background: 'rgba(99, 102, 241, 0.12)', border: '1px solid rgba(99, 102, 241, 0.3)', borderRadius: '12px', padding: '1.5rem', marginBottom: '2rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
+            <span style={{ fontSize: '1.3rem' }}>🛡️</span>
+            <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#818cf8' }}>Admin-Approved Student Retest Requests</h3>
+          </div>
+          <div style={{ display: 'grid', gap: '1rem' }}>
+            {retestRequests.filter((r) => r.status === 'APPROVED_BY_ADMIN').map((req) => (
+              <div key={req.id} style={{ background: 'rgba(17, 24, 39, 0.8)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '10px', padding: '1.25rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <div style={{ fontWeight: 700, color: '#f3f4f6' }}>{req.studentName} ({req.regNo})</div>
+                  <div style={{ fontSize: '0.85rem', color: '#34d399', marginTop: '0.2rem' }}>Exam: {req.examTitle || 'Test'} — <span style={{ color: '#fbbf24' }}>✓ Approved by Admin</span></div>
+                  <div style={{ fontSize: '0.85rem', color: '#9ca3af', marginTop: '0.3rem' }}>Reason: "{req.reason}"</div>
+                </div>
+                <button
+                  onClick={() => handleResetTestByTeacher(req.id)}
+                  style={{ background: 'linear-gradient(135deg, #10b981, #059669)', color: '#fff', border: 'none', padding: '0.65rem 1.25rem', borderRadius: '8px', fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 12px rgba(16, 185, 129, 0.3)' }}
+                >
+                  🔄 Restart / Reset Test for Student
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <div className="card" style={{ padding: '2rem', textAlign: 'center', color: '#9ca3af' }}>

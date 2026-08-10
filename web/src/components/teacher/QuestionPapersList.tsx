@@ -136,7 +136,7 @@ export function QuestionPapersList() {
                   <td style={{ padding: '1rem' }}>
                     <span
                       style={{
-                        padding: '0.25rem 0.6rem',
+                        padding: '0.25rem 0.65rem',
                         borderRadius: '20px',
                         fontSize: '0.75rem',
                         fontWeight: 600,
@@ -145,14 +145,14 @@ export function QuestionPapersList() {
                         border: exam.status === 'PUBLISHED' || exam.status === 'ACTIVE' ? '1px solid rgba(52, 211, 153, 0.3)' : '1px solid rgba(251, 191, 36, 0.3)'
                       }}
                     >
-                      {exam.status === 'ACTIVE' ? 'PUBLISHED' : exam.status}
+                      {exam.status === 'ACTIVE' || exam.status === 'PUBLISHED' ? 'PUBLISHED' : '⏳ PENDING ADMIN APPROVAL'}
                     </span>
                   </td>
                   <td style={{ padding: '1rem', color: '#9ca3af', fontSize: '0.85rem' }}>
                     {new Date(exam.createdAt).toLocaleDateString()}
                   </td>
                   <td style={{ padding: '1rem', textAlign: 'right' }}>
-                    <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+                    <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', alignItems: 'center' }}>
                       <button
                         onClick={() => openView(exam.id)}
                         style={{ background: 'rgba(99, 102, 241, 0.15)', color: '#818cf8', border: '1px solid rgba(99, 102, 241, 0.3)', padding: '0.4rem 0.75rem', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem' }}
@@ -165,13 +165,25 @@ export function QuestionPapersList() {
                       >
                         Edit
                       </button>
-                      {exam.status === 'DRAFT' && (
-                        <button
-                          onClick={() => setPublishTarget(exam)}
-                          style={{ background: 'linear-gradient(135deg, #10b981, #059669)', color: '#fff', border: 'none', padding: '0.4rem 0.75rem', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}
+                      {exam.status !== 'ACTIVE' && exam.status !== 'PUBLISHED' && (
+                        <span
+                          title="After saving, question papers are reviewed and published by an Administrator"
+                          style={{
+                            background: 'rgba(255, 255, 255, 0.05)',
+                            color: '#9ca3af',
+                            border: '1px solid rgba(255, 255, 255, 0.1)',
+                            padding: '0.4rem 0.75rem',
+                            borderRadius: '6px',
+                            fontSize: '0.75rem',
+                            fontWeight: 500,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '0.3rem',
+                            cursor: 'help'
+                          }}
                         >
-                          Publish
-                        </button>
+                          🔒 Requires Admin Approval
+                        </span>
                       )}
                     </div>
                   </td>

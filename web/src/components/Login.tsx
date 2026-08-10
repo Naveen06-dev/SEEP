@@ -25,7 +25,9 @@ export function Login() {
       localStorage.setItem('seep_token', data.token);
       localStorage.setItem('seep_user', JSON.stringify(data.user));
 
-      if (data.user.role === 'TEACHER' || data.user.role === 'ADMIN') {
+      if (data.user.role === 'ADMIN') {
+        navigate('/admin/dashboard');
+      } else if (data.user.role === 'TEACHER') {
         navigate('/teacher/profile');
       } else {
         navigate('/student/dashboard');
