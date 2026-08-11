@@ -34,7 +34,7 @@ router.get('/', async (req, res) => {
 
 router.post('/:id/start', async (req, res) => {
   try {
-    let { studentId } = req.body;
+    let { studentId, reset } = req.body || {};
     let exam = null;
     try {
       exam = await prisma.exam.findUnique({ where: { id: req.params.id } });
@@ -44,6 +44,10 @@ router.post('/:id/start', async (req, res) => {
 
     const validStudentId = studentId || 'student-1';
     const attemptKey = `${req.params.id}_${validStudentId}`;
+
+    if (reset === true || req.query.reset === 'true') {
+      mockAttempts.delete(attemptKey);
+    }
 
     let attempt = mockAttempts.get(attemptKey);
     if (attempt?.status === 'MALPRACTICE') {

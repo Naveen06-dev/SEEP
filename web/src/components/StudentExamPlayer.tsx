@@ -74,14 +74,22 @@ export function StudentExamPlayer() {
     return () => clearTimeout(timer);
   }, [phase, countdown]);
 
+  const enterFullscreenSafely = async () => {
+    try {
+      if (document.documentElement.requestFullscreen && !document.fullscreenElement) {
+        await document.documentElement.requestFullscreen();
+      }
+    } catch (e) {
+      // Ignored if user gesture policy is active
+    }
+  };
+
   /* ── 3. Fullscreen & Proctoring Protection ── */
   useEffect(() => {
     if (phase !== 'exam') return;
 
-    // Force Fullscreen
-    if (document.documentElement.requestFullscreen) {
-      document.documentElement.requestFullscreen().catch(() => {});
-    }
+    // Force Fullscreen safely
+    enterFullscreenSafely();
 
     const handleVisibilityChange = () => {
       if (document.hidden) {
@@ -194,6 +202,25 @@ export function StudentExamPlayer() {
     );
   }
 
+  const handleResetAttempt = async () => {
+    if (!examId) return;
+    setPhase('loading');
+    setError(null);
+    try {
+      const userStr = localStorage.getItem('seep_user');
+      const userId = userStr ? JSON.parse(userStr).id : `guest-${Date.now()}`;
+      const startRes = await api<{ attemptId: string }>(`/api/attempts/${examId}/start?reset=true`, {
+        method: 'POST',
+        body: JSON.stringify({ studentId: userId, reset: true })
+      });
+      setAttemptId(startRes.attemptId);
+      setPhase('countdown');
+    } catch (err: any) {
+      setError(err.message || 'Could not reset exam attempt');
+      setPhase('error');
+    }
+  };
+
   if (phase === 'error') {
     return (
       <div style={styles.fullCenter}>
@@ -201,7 +228,14 @@ export function StudentExamPlayer() {
           <div style={{ fontSize: '3rem' }}>⚠️</div>
           <h2 style={{ margin: '1rem 0 0.5rem', color: '#1e293b' }}>Exam Unavailable</h2>
           <p style={{ color: '#64748b', marginBottom: '1.5rem' }}>{error || 'Could not load exam. Please try again.'}</p>
-          <button onClick={() => navigate('/student/dashboard')} style={styles.primaryBtn}>Back to Dashboard</button>
+          <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center' }}>
+            <button onClick={handleResetAttempt} style={{ ...styles.primaryBtn, background: 'linear-gradient(135deg, #10b981, #059669)', boxShadow: '0 4px 15px rgba(16,185,129,0.35)' }}>
+              🔄 Reset & Retry Attempt
+            </button>
+            <button onClick={() => navigate('/student/dashboard')} style={{ background: '#f1f5f9', color: '#475569', border: '1px solid #cbd5e1', padding: '0.75rem 1.5rem', borderRadius: '10px', fontWeight: 600, cursor: 'pointer', fontSize: '0.95rem' }}>
+              Back to Dashboard
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -256,10 +290,19 @@ export function StudentExamPlayer() {
             ))}
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'center' }}>
+          <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
+            <button
+              onClick={async () => {
+                await enterFullscreenSafely();
+                setPhase('exam');
+              }}
+              style={styles.primaryBtn}
+            >
+              🚀 Start Exam Now (Fullscreen)
+            </button>
             <button
               onClick={() => navigate('/student/dashboard')}
-              style={{ background: '#f1f5f9', color: '#475569', border: '1px solid #cbd5e1', padding: '0.8rem 2rem', borderRadius: '10px', fontWeight: 600, cursor: 'pointer', fontSize: '0.9rem' }}
+              style={{ background: '#f1f5f9', color: '#475569', border: '1px solid #cbd5e1', padding: '0.8rem 1.5rem', borderRadius: '10px', fontWeight: 600, cursor: 'pointer', fontSize: '0.9rem' }}
             >
               Cancel & Exit
             </button>
