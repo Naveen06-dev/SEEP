@@ -17,15 +17,13 @@ export function AdminLayout() {
   };
 
   const navItems = [
-    { key: 'OVERVIEW', path: '/admin/dashboard?tab=OVERVIEW', label: '1. System Overview', icon: '⚡' },
-    { key: 'DEPARTMENTS', path: '/admin/dashboard?tab=DEPARTMENTS', label: '2. Department Details', icon: '🏢' },
-    { key: 'TEACHERS', path: '/admin/dashboard?tab=TEACHERS', label: '3. Teacher Details', icon: '👨‍🏫' },
-    { key: 'STUDENTS', path: '/admin/dashboard?tab=STUDENTS', label: '4. Student Details', icon: '🎓' },
-    { key: 'APPROVALS', path: '/admin/dashboard?tab=APPROVALS', label: '5. Test Approvals', icon: '📋' },
-    { key: 'RESULTS', path: '/admin/dashboard?tab=RESULTS', label: '6. Student Results', icon: '📊' },
-    { key: 'RETEST_REQUESTS', path: '/admin/dashboard?tab=RETEST_REQUESTS', label: '7. Retest Requests', icon: '📩' },
-    { key: 'AUDIT_LOGS', path: '/admin/dashboard?tab=AUDIT_LOGS', label: '8. Audit Logs', icon: '🛡️' },
-    { key: 'SYSTEM_CONFIG', path: '/admin/dashboard?tab=SYSTEM_CONFIG', label: '9. System Config & Flags', icon: '⚙️' },
+    { key: 'DEPARTMENTS', path: '/admin/dashboard?tab=DEPARTMENTS', label: '1. Department Details', icon: '🏢' },
+    { key: 'TEACHERS', path: '/admin/dashboard?tab=TEACHERS', label: '2. Teacher Details', icon: '👨‍🏫' },
+    { key: 'STUDENTS', path: '/admin/dashboard?tab=STUDENTS', label: '3. Student Details', icon: '🎓' },
+    { key: 'APPROVALS', path: '/admin/dashboard?tab=APPROVALS', label: '4. Test Approvals', icon: '📋' },
+    { key: 'RESULTS', path: '/admin/dashboard?tab=RESULTS', label: '5. Student Results', icon: '📊' },
+    { key: 'RETEST_REQUESTS', path: '/admin/dashboard?tab=RETEST_REQUESTS', label: '6. Retest Requests', icon: '📩' },
+    { key: 'AUDIT_LOGS', path: '/admin/dashboard?tab=AUDIT_LOGS', label: '7. Audit Logs', icon: '🛡️' },
   ];
 
   return (
@@ -65,7 +63,7 @@ export function AdminLayout() {
         {/* Sidebar Nav Links */}
         <nav style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', flex: 1, overflowY: 'auto' }}>
           {navItems.map((item) => {
-            const currentTab = new URLSearchParams(location.search).get('tab') || 'OVERVIEW';
+            const currentTab = new URLSearchParams(location.search).get('tab') || 'DEPARTMENTS';
             const isActive = location.pathname.startsWith('/admin') && currentTab === item.key;
             return (
               <NavLink

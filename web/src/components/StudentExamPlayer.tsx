@@ -15,7 +15,7 @@ type ExamDetails = {
 
 type Phase = 'loading' | 'countdown' | 'exam' | 'error';
 
-const COUNTDOWN_SECONDS = 25;
+const COUNTDOWN_SECONDS = 5;
 
 export function StudentExamPlayer() {
   const { examId } = useParams<{ examId: string }>();
@@ -46,13 +46,13 @@ export function StudentExamPlayer() {
         setTimeLeftSeconds((examData.durationMinutes || 60) * 60);
 
         const userStr = localStorage.getItem('seep_user');
-        const userId = userStr ? JSON.parse(userStr).id : `guest-${Date.now()}`;
+        const userId = userStr ? JSON.parse(userStr).id : 'student-1';
 
         // Start attempt
         const startRes = await api<{ attemptId: string }>(`/api/attempts/${examId}/start`, {
           method: 'POST',
           body: JSON.stringify({ studentId: userId })
-        }).catch(() => ({ attemptId: `demo-${Date.now()}` }));
+        });
 
         setAttemptId(startRes.attemptId);
         setPhase('countdown');
@@ -63,10 +63,11 @@ export function StudentExamPlayer() {
     })();
   }, [examId]);
 
-  /* ── 2. 25-second automatic countdown ── */
+  /* ── 2. 5-second automatic countdown ── */
   useEffect(() => {
     if (phase !== 'countdown') return;
     if (countdown <= 0) {
+      enterFullscreenSafely();
       setPhase('exam');
       return;
     }
@@ -84,7 +85,7 @@ export function StudentExamPlayer() {
     }
   };
 
-  /* ── 3. Fullscreen & Proctoring Protection ── */
+  /* ── 3. Fullscreen & Proctoring Protection + Copy/Paste Prevention ── */
   useEffect(() => {
     if (phase !== 'exam') return;
 
@@ -103,21 +104,37 @@ export function StudentExamPlayer() {
       }
     };
 
-    const handleKeyDown = (e: KeyboardEvent) => {
+    const preventCopyPaste = (e: Event) => {
+      e.preventDefault();
+      return false;
+    };
+
+    const preventClipboardKeys = (e: KeyboardEvent) => {
       if (e.key === 'Escape' || e.key === 'Esc') {
         e.preventDefault();
         handleMalpracticeTermination('ESC_KEY');
       }
+      if ((e.ctrlKey || e.metaKey) && ['c', 'v', 'x', 'C', 'V', 'X'].includes(e.key)) {
+        e.preventDefault();
+      }
     };
 
+    document.addEventListener('copy', preventCopyPaste, true);
+    document.addEventListener('paste', preventCopyPaste, true);
+    document.addEventListener('cut', preventCopyPaste, true);
+    document.addEventListener('contextmenu', preventCopyPaste, true);
     document.addEventListener('visibilitychange', handleVisibilityChange);
     document.addEventListener('fullscreenchange', handleFullscreenChange);
-    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keydown', preventClipboardKeys, true);
 
     return () => {
+      document.removeEventListener('copy', preventCopyPaste, true);
+      document.removeEventListener('paste', preventCopyPaste, true);
+      document.removeEventListener('cut', preventCopyPaste, true);
+      document.removeEventListener('contextmenu', preventCopyPaste, true);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
-      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keydown', preventClipboardKeys, true);
     };
   }, [phase, attemptId, exam]);
 
@@ -208,7 +225,7 @@ export function StudentExamPlayer() {
     setError(null);
     try {
       const userStr = localStorage.getItem('seep_user');
-      const userId = userStr ? JSON.parse(userStr).id : `guest-${Date.now()}`;
+      const userId = userStr ? JSON.parse(userStr).id : 'student-1';
       const startRes = await api<{ attemptId: string }>(`/api/attempts/${examId}/start?reset=true`, {
         method: 'POST',
         body: JSON.stringify({ studentId: userId, reset: true })
@@ -292,17 +309,8 @@ export function StudentExamPlayer() {
 
           <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
             <button
-              onClick={async () => {
-                await enterFullscreenSafely();
-                setPhase('exam');
-              }}
-              style={styles.primaryBtn}
-            >
-              🚀 Start Exam Now (Fullscreen)
-            </button>
-            <button
               onClick={() => navigate('/student/dashboard')}
-              style={{ background: '#f1f5f9', color: '#475569', border: '1px solid #cbd5e1', padding: '0.8rem 1.5rem', borderRadius: '10px', fontWeight: 600, cursor: 'pointer', fontSize: '0.9rem' }}
+              style={{ background: '#f1f5f9', color: '#475569', border: '1px solid #cbd5e1', padding: '0.8rem 1.75rem', borderRadius: '10px', fontWeight: 600, cursor: 'pointer', fontSize: '0.9rem' }}
             >
               Cancel & Exit
             </button>

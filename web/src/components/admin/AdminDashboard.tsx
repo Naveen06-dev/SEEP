@@ -2,12 +2,12 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api } from '../../lib/api';
 
-type TabType = 'OVERVIEW' | 'DEPARTMENTS' | 'TEACHERS' | 'STUDENTS' | 'APPROVALS' | 'RESULTS' | 'RETEST_REQUESTS' | 'AUDIT_LOGS' | 'SYSTEM_CONFIG';
+type TabType = 'DEPARTMENTS' | 'TEACHERS' | 'STUDENTS' | 'APPROVALS' | 'RESULTS' | 'RETEST_REQUESTS' | 'AUDIT_LOGS';
 
 export function AdminDashboard() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const urlTab = (searchParams.get('tab') as TabType) || 'OVERVIEW';
-  const activeTab: TabType = ['OVERVIEW', 'DEPARTMENTS', 'TEACHERS', 'STUDENTS', 'APPROVALS', 'RESULTS', 'RETEST_REQUESTS', 'AUDIT_LOGS', 'SYSTEM_CONFIG'].includes(urlTab) ? urlTab : 'OVERVIEW';
+  const urlTab = (searchParams.get('tab') as TabType) || 'DEPARTMENTS';
+  const activeTab: TabType = ['DEPARTMENTS', 'TEACHERS', 'STUDENTS', 'APPROVALS', 'RESULTS', 'RETEST_REQUESTS', 'AUDIT_LOGS'].includes(urlTab) ? urlTab : 'DEPARTMENTS';
 
   const setActiveTab = (tab: TabType) => {
     setSearchParams({ tab });
@@ -22,9 +22,7 @@ export function AdminDashboard() {
   const [exams, setExams] = useState<any[]>([]);
   const [studentResults, setStudentResults] = useState<any[]>([]);
   const [retestRequests, setRetestRequests] = useState<any[]>([]);
-  const [overviewStats, setOverviewStats] = useState<any>(null);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
-  const [systemConfig, setSystemConfig] = useState<any>({});
 
   // Filter states
   const [selectedDeptTeacher, setSelectedDeptTeacher] = useState<string>('ALL');
@@ -35,7 +33,6 @@ export function AdminDashboard() {
   const [selectedExam, setSelectedExam] = useState<any | null>(null);
   const [publishTarget, setPublishTarget] = useState<any | null>(null);
   const [isPublishing, setIsPublishing] = useState(false);
-  const [isSavingConfig, setIsSavingConfig] = useState(false);
 
   useEffect(() => {
     loadAllAdminData();
@@ -45,16 +42,14 @@ export function AdminDashboard() {
     try {
       setLoading(true);
 
-      const [depts, tchs, stds, exms, res, retests, overview, logs, cfg] = await Promise.all([
+      const [depts, tchs, stds, exms, res, retests, logs] = await Promise.all([
         api<any[]>('/api/admin/departments').catch(() => []),
         api<any[]>('/api/admin/teachers').catch(() => []),
         api<any[]>('/api/admin/students').catch(() => []),
         api<any[]>('/api/admin/exams').catch(() => []),
         api<any[]>('/api/admin/results').catch(() => []),
         api<any>('/api/attempts/retest-requests').catch(() => ({ requests: [] })),
-        api<any>('/api/admin/overview').catch(() => null),
-        api<any[]>('/api/admin/audit-logs').catch(() => []),
-        api<any>('/api/admin/config').catch(() => ({}))
+        api<any[]>('/api/admin/audit-logs').catch(() => [])
       ]);
 
       setDepartments(depts);
@@ -63,9 +58,7 @@ export function AdminDashboard() {
       setExams(exms);
       setStudentResults(res);
       setRetestRequests(retests.requests || []);
-      setOverviewStats(overview);
       setAuditLogs(logs);
-      setSystemConfig(cfg);
     } catch (err) {
       console.error('Failed to load admin dashboard data', err);
     } finally {
@@ -89,6 +82,16 @@ export function AdminDashboard() {
     }
   };
 
+  const handleUnpublishExam = async (exam: any) => {
+    try {
+      await api(`/api/admin/exams/${exam.id}/unpublish`, { method: 'POST' });
+      alert(`🛑 Exam "${exam.title}" stopped sharing! It is now hidden from student available exams.`);
+      loadAllAdminData();
+    } catch (err: any) {
+      alert(err.message || 'Failed to stop sharing exam');
+    }
+  };
+
   const handleApproveRetest = async (reqId: string) => {
     try {
       await api(`/api/attempts/retest-requests/${reqId}/approve-admin`, { method: 'POST' });
@@ -106,21 +109,6 @@ export function AdminDashboard() {
       loadAllAdminData();
     } catch (err: any) {
       alert(err.message || 'Failed to reject retest request');
-    }
-  };
-
-  const handleToggleConfig = async (key: string, value: boolean) => {
-    try {
-      setIsSavingConfig(true);
-      const updated = await api<any>('/api/admin/config', {
-        method: 'POST',
-        body: JSON.stringify({ [key]: value })
-      });
-      setSystemConfig(updated);
-    } catch (err: any) {
-      alert(err.message || 'Failed to update system config');
-    } finally {
-      setIsSavingConfig(false);
     }
   };
 
@@ -171,18 +159,16 @@ export function AdminDashboard() {
         </button>
       </div>
 
-      {/* 9-Tab Navigation Bar */}
+      {/* 7-Tab Navigation Bar */}
       <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '2rem', background: 'rgba(17, 24, 39, 0.8)', padding: '0.4rem', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
         {[
-          { key: 'OVERVIEW', label: '⚡ 1. System Overview' },
-          { key: 'DEPARTMENTS', label: '🏢 2. Department Details' },
-          { key: 'TEACHERS', label: '👨‍🏫 3. Teacher Details' },
-          { key: 'STUDENTS', label: '🎓 4. Student Details' },
-          { key: 'APPROVALS', label: `📋 5. Test Approvals (${pendingApprovalExams.length})` },
-          { key: 'RESULTS', label: '📊 6. Student Results' },
-          { key: 'RETEST_REQUESTS', label: `📩 7. Retest Requests (${retestRequests.filter(r => r.status === 'PENDING_ADMIN').length})` },
-          { key: 'AUDIT_LOGS', label: '🛡️ 8. Audit Logs' },
-          { key: 'SYSTEM_CONFIG', label: '⚙️ 9. System Config' }
+          { key: 'DEPARTMENTS', label: '🏢 1. Department Details' },
+          { key: 'TEACHERS', label: '👨‍🏫 2. Teacher Details' },
+          { key: 'STUDENTS', label: '🎓 3. Student Details' },
+          { key: 'APPROVALS', label: `📋 4. Test Approvals (${pendingApprovalExams.length})` },
+          { key: 'RESULTS', label: '📊 5. Student Results' },
+          { key: 'RETEST_REQUESTS', label: `📩 6. Retest Requests (${retestRequests.filter(r => r.status === 'PENDING_ADMIN').length})` },
+          { key: 'AUDIT_LOGS', label: '🛡️ 7. Audit Logs' }
         ].map((tab) => (
           <button
             key={tab.key}
@@ -211,79 +197,7 @@ export function AdminDashboard() {
         </div>
       ) : (
         <>
-          {/* MENU 1: SYSTEM OVERVIEW & KPIS (SRS Section 2.3 & 8.3) */}
-          {activeTab === 'OVERVIEW' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
-              {/* System Health & Status Bar */}
-              <div style={{ background: 'rgba(17, 24, 39, 0.8)', border: '1px solid rgba(16, 185, 129, 0.3)', borderRadius: '14px', padding: '1.25rem 1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                  <span style={{ display: 'inline-block', width: '12px', height: '12px', borderRadius: '50%', background: '#10b981', boxShadow: '0 0 12px #10b981' }}></span>
-                  <div>
-                    <div style={{ fontSize: '0.95rem', fontWeight: 700, color: '#f3f4f6' }}>System Status: ● HEALTHY & OPERATIONAL</div>
-                    <div style={{ fontSize: '0.8rem', color: '#9ca3af' }}>All services running normally (Database, Redis Queue, Proctoring Engine, Code Runner)</div>
-                  </div>
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: '0.85rem', color: '#34d399', fontWeight: 700 }}>Active Users: {overviewStats?.activeUsers || 2340}</div>
-                  <div style={{ fontSize: '0.75rem', color: '#9ca3af' }}>Concurrent sessions in last 15m</div>
-                </div>
-              </div>
 
-              {/* 4 Core KPI Cards */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1.25rem' }}>
-                <div style={{ background: 'rgba(17, 24, 39, 0.8)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '14px', padding: '1.5rem' }}>
-                  <div style={{ color: '#9ca3af', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.5rem' }}>Total Users</div>
-                  <div style={{ fontSize: '2rem', fontWeight: 800, color: '#ffffff' }}>{overviewStats?.totalUsers?.toLocaleString() || '12,540'}</div>
-                  <div style={{ fontSize: '0.75rem', color: '#34d399', marginTop: '0.5rem' }}>↑ 12% growth this month</div>
-                </div>
-                <div style={{ background: 'rgba(17, 24, 39, 0.8)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '14px', padding: '1.5rem' }}>
-                  <div style={{ color: '#9ca3af', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.5rem' }}>Active Exam Sessions</div>
-                  <div style={{ fontSize: '2rem', fontWeight: 800, color: '#60a5fa' }}>{overviewStats?.activeExams || 45}</div>
-                  <div style={{ fontSize: '0.75rem', color: '#93c5fd', marginTop: '0.5rem' }}>Live proctored exams running</div>
-                </div>
-                <div style={{ background: 'rgba(17, 24, 39, 0.8)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '14px', padding: '1.5rem' }}>
-                  <div style={{ color: '#9ca3af', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.5rem' }}>Active Feature Flags</div>
-                  <div style={{ fontSize: '2rem', fontWeight: 800, color: '#c084fc' }}>{overviewStats?.featureFlagsCount || 6} / 8</div>
-                  <div style={{ fontSize: '0.75rem', color: '#e9d5ff', marginTop: '0.5rem' }}>System capabilities enabled</div>
-                </div>
-                <div style={{ background: 'rgba(17, 24, 39, 0.8)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '14px', padding: '1.5rem' }}>
-                  <div style={{ color: '#9ca3af', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.5rem' }}>System SLA Uptime</div>
-                  <div style={{ fontSize: '2rem', fontWeight: 800, color: '#34d399' }}>{overviewStats?.systemUptime || '99.9%'}</div>
-                  <div style={{ fontSize: '0.75rem', color: '#6ee7b7', marginTop: '0.5rem' }}>30-day availability record</div>
-                </div>
-              </div>
-
-              {/* Tenant Usage & Resource Graph Visualization (SRS 8.3 Layout) */}
-              <div style={{ background: 'rgba(17, 24, 39, 0.8)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '14px', padding: '1.75rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-                  <div>
-                    <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#f3f4f6' }}>Tenant Usage & Resource Allocation</h3>
-                    <div style={{ fontSize: '0.8rem', color: '#9ca3af' }}>Monthly exam load, media storage, and CPU consumption</div>
-                  </div>
-                  <span style={{ background: 'rgba(99, 102, 241, 0.15)', color: '#818cf8', padding: '0.3rem 0.75rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 700 }}>
-                    Resource Telemetry
-                  </span>
-                </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '1rem', alignItems: 'end', minHeight: '160px', padding: '1rem 0', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-                  {(overviewStats?.tenantUsage || [
-                    { month: 'Jan', activeExams: 28, storageGB: 120, cpuLoad: 35 },
-                    { month: 'Feb', activeExams: 34, storageGB: 145, cpuLoad: 42 },
-                    { month: 'Mar', activeExams: 45, storageGB: 190, cpuLoad: 58 },
-                    { month: 'Apr', activeExams: 52, storageGB: 220, cpuLoad: 64 },
-                    { month: 'May', activeExams: 40, storageGB: 240, cpuLoad: 48 },
-                    { month: 'Jun', activeExams: 60, storageGB: 280, cpuLoad: 72 }
-                  ]).map((item: any) => (
-                    <div key={item.month} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
-                      <div style={{ fontSize: '0.75rem', color: '#34d399', fontWeight: 700 }}>{item.activeExams} exams</div>
-                      <div style={{ width: '100%', maxWidth: '36px', height: `${item.cpuLoad * 1.5}px`, background: 'linear-gradient(to top, #10b981, #6366f1)', borderRadius: '6px 6px 0 0' }}></div>
-                      <div style={{ fontSize: '0.8rem', color: '#9ca3af', fontWeight: 600 }}>{item.month}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
 
           {/* MENU 2: DEPARTMENT DETAILS */}
           {activeTab === 'DEPARTMENTS' && (
@@ -472,12 +386,19 @@ export function AdminDashboard() {
                               >
                                 Review Paper
                               </button>
-                              {!isPublished && (
+                              {!isPublished ? (
                                 <button
                                   onClick={() => setPublishTarget(exam)}
                                   style={{ background: 'linear-gradient(135deg, #10b981, #059669)', color: '#fff', border: 'none', padding: '0.4rem 0.85rem', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 700, boxShadow: '0 2px 10px rgba(16, 185, 129, 0.3)' }}
                                 >
                                   🚀 Approve & Publish
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => handleUnpublishExam(exam)}
+                                  style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#f87171', border: '1px solid rgba(239, 68, 68, 0.3)', padding: '0.4rem 0.85rem', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 700 }}
+                                >
+                                  🛑 Stop Sharing
                                 </button>
                               )}
                             </div>
@@ -711,64 +632,6 @@ export function AdminDashboard() {
                     ))}
                   </tbody>
                 </table>
-              </div>
-            </div>
-          )}
-
-          {/* MENU 9: SYSTEM CONFIG & FEATURE FLAGS (AD-03, AD-06) */}
-          {activeTab === 'SYSTEM_CONFIG' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
-              {/* Maintenance Mode Control */}
-              <div style={{ background: systemConfig.maintenanceMode ? 'rgba(239,68,68,0.15)' : 'rgba(17, 24, 39, 0.8)', border: systemConfig.maintenanceMode ? '1px solid rgba(239,68,68,0.4)' : '1px solid rgba(255,255,255,0.08)', borderRadius: '14px', padding: '1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
-                  <h3 style={{ margin: '0 0 0.3rem 0', fontSize: '1.1rem', color: systemConfig.maintenanceMode ? '#f87171' : '#f3f4f6' }}>
-                    🚨 System Maintenance Mode (AD-06)
-                  </h3>
-                  <div style={{ fontSize: '0.82rem', color: '#9ca3af' }}>
-                    When enabled, restricts student exam logins and displays system maintenance announcement.
-                  </div>
-                </div>
-                <button
-                  onClick={() => handleToggleConfig('maintenanceMode', !systemConfig.maintenanceMode)}
-                  disabled={isSavingConfig}
-                  style={{
-                    background: systemConfig.maintenanceMode ? '#ef4444' : 'rgba(255,255,255,0.1)',
-                    color: '#fff',
-                    border: 'none',
-                    padding: '0.65rem 1.25rem',
-                    borderRadius: '8px',
-                    fontWeight: 700,
-                    cursor: 'pointer'
-                  }}
-                >
-                  {systemConfig.maintenanceMode ? 'DISABLE Maintenance Mode' : 'ENABLE Maintenance Mode'}
-                </button>
-              </div>
-
-              {/* Feature Flags Grid */}
-              <div style={{ background: 'rgba(17, 24, 39, 0.8)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '14px', padding: '1.75rem' }}>
-                <h3 style={{ margin: '0 0 1.25rem 0', fontSize: '1.1rem', color: '#f3f4f6' }}>🚩 Platform Feature Flags (AD-06)</h3>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1.25rem' }}>
-                  {[
-                    { key: 'aiQuestionGenerator', label: 'AI Question Generator (AIQ-01)', desc: 'Enable LLM-assisted question generation for teachers' },
-                    { key: 'aiProctoringEnabled', label: 'AI WebCam Proctoring (PM-01)', desc: 'Facial detection & head pose estimation tracking' },
-                    { key: 'liveStreamingEnabled', label: 'Live Video Invigilation (PM-03)', desc: 'Real-time WebRTC stream to invigilator console' },
-                    { key: 'subjectiveDualEvaluation', label: 'Dual Evaluator Workflow (FM-05)', desc: 'Require two faculty scores for high-stakes papers' }
-                  ].map((flag) => (
-                    <div key={flag.key} style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '10px', padding: '1.25rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div>
-                        <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#f3f4f6', marginBottom: '0.25rem' }}>{flag.label}</div>
-                        <div style={{ fontSize: '0.78rem', color: '#9ca3af' }}>{flag.desc}</div>
-                      </div>
-                      <input
-                        type="checkbox"
-                        checked={!!systemConfig[flag.key]}
-                        onChange={(e) => handleToggleConfig(flag.key, e.target.checked)}
-                        style={{ width: '20px', height: '20px', accentColor: '#10b981', cursor: 'pointer' }}
-                      />
-                    </div>
-                  ))}
-                </div>
               </div>
             </div>
           )}

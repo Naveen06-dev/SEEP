@@ -484,6 +484,27 @@ export async function publishExam(examId, userRole = 'TEACHER') {
   return { id: examId, status: 'ACTIVE' };
 }
 
+export async function unpublishExam(examId, userRole = 'ADMIN') {
+  try {
+    const exam = await prisma.exam.findUnique({ where: { id: examId } });
+    if (exam) {
+      return await prisma.exam.update({
+        where: { id: examId },
+        data: { status: 'DRAFT' }
+      });
+    }
+  } catch (err) {
+    console.warn('DB unpublish error, setting mock exam to DRAFT');
+  }
+
+  const mockExam = MOCK_EXAMS.find(e => e.id === examId);
+  if (mockExam) {
+    mockExam.status = 'DRAFT';
+    return mockExam;
+  }
+  return { id: examId, status: 'DRAFT' };
+}
+
 export async function getTeacherResults(teacherId) {
   try {
     let user = await prisma.user.findUnique({ where: { id: teacherId } });

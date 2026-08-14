@@ -65,32 +65,22 @@ export function StudentDashboard() {
     }
   };
 
-  // Pre-start 3-Second Countdown State
-  const [countdownExamId, setCountdownExamId] = useState<string | null>(null);
-  const [countdown, setCountdown] = useState<number>(3);
-
   // Retest Request Modal State
   const [retestExam, setRetestExam] = useState<any | null>(null);
   const [retestReason, setRetestReason] = useState('');
   const [isSubmittingRetest, setIsSubmittingRetest] = useState(false);
 
-  const startCountdown = (examId: string) => {
-    setCountdownExamId(examId);
-    setCountdown(3);
-  };
-
-  useEffect(() => {
-    if (!countdownExamId) return;
-    if (countdown > 0) {
-      const timer = setTimeout(() => setCountdown(countdown - 1), 1000);
-      return () => clearTimeout(timer);
-    } else {
-      // Countdown reached 0: launch exam
-      const targetId = countdownExamId;
-      setCountdownExamId(null);
-      navigate(`/student/exam/${targetId}`);
+  // Start Exam Handler (Immediate Fullscreen & Navigation)
+  const handleStartExam = async (examId: string) => {
+    try {
+      if (document.documentElement.requestFullscreen && !document.fullscreenElement) {
+        await document.documentElement.requestFullscreen();
+      }
+    } catch (e) {
+      console.log('Fullscreen error:', e);
     }
-  }, [countdownExamId, countdown, navigate]);
+    navigate(`/student/exam/${examId}`);
+  };
 
   const handleSendRetestRequest = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -125,6 +115,14 @@ export function StudentDashboard() {
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good Morning' : hour < 17 ? 'Good Afternoon' : 'Good Evening';
 
+  const endedAttemptExamIds = new Set(
+    myAttempts
+      .filter((att) => ['SUBMITTED', 'COMPLETED', 'MALPRACTICE'].includes(att.status))
+      .map((att) => att.examId || att.exam?.id)
+  );
+
+  const availableExams = exams.filter((e) => !endedAttemptExamIds.has(e.id));
+
   return (
     <div style={{ maxWidth: '1180px', color: '#f3f4f6' }}>
 
@@ -149,7 +147,7 @@ export function StudentDashboard() {
           </p>
           <div style={{ display: 'flex', gap: '1.25rem', flexWrap: 'wrap' }}>
             {[
-              { label: 'Published Exams', value: loading ? '…' : exams.length, icon: '📋', accent: '#818cf8' },
+              { label: 'Available Exams', value: loading ? '…' : availableExams.length, icon: '📋', accent: '#818cf8' },
               { label: 'Attempts Made', value: loading ? '…' : myAttempts.length, icon: '✍️', accent: '#34d399' },
               { label: 'Results Ready', value: loading ? '…' : myAttempts.filter(a => a.resultVisible).length, icon: '📊', accent: '#c084fc' },
             ].map(stat => (
@@ -193,15 +191,15 @@ export function StudentDashboard() {
             <div style={{ background: 'rgba(17, 24, 39, 0.7)', padding: '3rem', borderRadius: '14px', textAlign: 'center', color: '#9ca3af', border: '1px solid rgba(255,255,255,0.08)' }}>
               Loading available exams...
             </div>
-          ) : exams.length === 0 ? (
+          ) : availableExams.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '4rem 2rem', background: 'rgba(17, 24, 39, 0.7)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.08)' }}>
               <div style={{ fontSize: '3.5rem', marginBottom: '1rem' }}>📚</div>
-              <h3 style={{ margin: '0 0 0.5rem', color: '#f3f4f6' }}>No Published Exams Available</h3>
-              <p style={{ margin: 0, color: '#9ca3af' }}>Exams created by teachers are currently pending Admin publication approval.</p>
+              <h3 style={{ margin: '0 0 0.5rem', color: '#f3f4f6' }}>No Available Exams</h3>
+              <p style={{ margin: 0, color: '#9ca3af' }}>You have completed all published exams or no new tests are active at this time.</p>
             </div>
           ) : (
             <div style={{ display: 'grid', gap: '1.25rem' }}>
-              {exams.map((exam) => (
+              {availableExams.map((exam) => (
                 <div
                   key={exam.id}
                   style={{
@@ -241,7 +239,7 @@ export function StudentDashboard() {
                     </div>
                   </div>
                   <button
-                    onClick={() => startCountdown(exam.id)}
+                    onClick={() => handleStartExam(exam.id)}
                     style={{
                       background: 'linear-gradient(135deg, #6366f1, #a855f7)',
                       color: '#fff',
@@ -316,21 +314,6 @@ export function StudentDashboard() {
               ))}
             </div>
           )}
-        </div>
-      )}
-
-      {/* 3-SECOND PRE-START COUNTDOWN MODAL BUFFER */}
-      {countdownExamId && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(11, 15, 25, 0.9)', backdropFilter: 'blur(12px)', display: 'grid', placeItems: 'center', zIndex: 100 }}>
-          <div style={{ background: '#111827', borderRadius: '24px', padding: '3rem', maxWidth: '420px', width: '90%', textAlign: 'center', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)', border: '1px solid rgba(255, 255, 255, 0.1)' }}>
-            <div style={{ width: '80px', height: '80px', borderRadius: '50%', background: 'linear-gradient(135deg, #6366f1, #a855f7)', display: 'grid', placeItems: 'center', margin: '0 auto 1.5rem auto', color: '#fff', fontSize: '2.5rem', fontWeight: 800, boxShadow: '0 10px 25px rgba(99, 102, 241, 0.4)' }}>
-              {countdown}
-            </div>
-            <h3 style={{ margin: '0 0 0.5rem 0', fontSize: '1.35rem', fontWeight: 800, color: '#f3f4f6' }}>Preparing Environment</h3>
-            <p style={{ color: '#9ca3af', fontSize: '0.9rem', margin: 0, lineHeight: 1.5 }}>
-              Initializing secure proctoring engine and balancing server load. Starting in {countdown} seconds...
-            </p>
-          </div>
         </div>
       )}
 

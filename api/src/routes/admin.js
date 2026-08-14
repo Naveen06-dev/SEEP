@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getTeacherExams, publishExam } from '../services/teacherService.js';
+import { getTeacherExams, publishExam, unpublishExam } from '../services/teacherService.js';
 import {
   getDepartmentsOverview,
   getDepartmentTeachers,
@@ -58,6 +58,15 @@ router.post('/exams/:id/publish', async (req, res) => {
   try {
     const published = await publishExam(req.params.id, 'ADMIN');
     res.json(published);
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+router.post('/exams/:id/unpublish', async (req, res) => {
+  try {
+    const unpublished = await unpublishExam(req.params.id, 'ADMIN');
+    res.json(unpublished);
   } catch (e) {
     res.status(400).json({ error: e.message });
   }

@@ -21,7 +21,8 @@ export function CodeEditor({ language, value, onChange, theme = 'vs-dark' }: Pro
           fontSize: 14,
           lineNumbers: 'on',
           automaticLayout: true,
-          tabSize: 2
+          tabSize: 2,
+          contextmenu: false
         }}
       />
     </div>

@@ -46,7 +46,11 @@ router.post('/:id/start', async (req, res) => {
     const attemptKey = `${req.params.id}_${validStudentId}`;
 
     if (reset === true || req.query.reset === 'true') {
-      mockAttempts.delete(attemptKey);
+      for (const k of Array.from(mockAttempts.keys())) {
+        if (k.startsWith(req.params.id) || k.endsWith(validStudentId)) {
+          mockAttempts.delete(k);
+        }
+      }
     }
 
     let attempt = mockAttempts.get(attemptKey);
