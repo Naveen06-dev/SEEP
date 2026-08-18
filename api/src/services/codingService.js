@@ -69,13 +69,25 @@ export async function runVisibleTestCases({ questionId, language, sourceCode }) 
     : MOCK_FALLBACK_QUESTION.testCases;
 
   for (const tc of casesToRun) {
-    const exec = await executeCode({
-      language,
-      sourceCode,
-      stdin: tc.input,
-      timeLimitMs: question.timeLimitMs || 2000,
-      memoryLimitMB: question.memoryLimitMB || 128
-    });
+    let exec;
+    try {
+      exec = await executeCode({
+        language,
+        sourceCode,
+        stdin: tc.input,
+        timeLimitMs: question.timeLimitMs || 2000,
+        memoryLimitMB: question.memoryLimitMB || 128
+      });
+    } catch (err) {
+      exec = {
+        stdout: '',
+        stderr: err.message,
+        compileError: null,
+        runtimeError: err.message || 'Execution error',
+        executionTimeMs: 0,
+        memoryKb: 0
+      };
+    }
 
     maxTime = Math.max(maxTime, exec.executionTimeMs || 0);
     maxMem = Math.max(maxMem, exec.memoryKb || 0);
@@ -121,13 +133,25 @@ export async function submitCodingAnswer({ attemptId, questionId, language, sour
     : MOCK_FALLBACK_QUESTION.testCases;
 
   for (const tc of casesToRun) {
-    const exec = await executeCode({
-      language,
-      sourceCode,
-      stdin: tc.input,
-      timeLimitMs: question.timeLimitMs || 2000,
-      memoryLimitMB: question.memoryLimitMB || 128
-    });
+    let exec;
+    try {
+      exec = await executeCode({
+        language,
+        sourceCode,
+        stdin: tc.input,
+        timeLimitMs: question.timeLimitMs || 2000,
+        memoryLimitMB: question.memoryLimitMB || 128
+      });
+    } catch (err) {
+      exec = {
+        stdout: '',
+        stderr: err.message,
+        compileError: null,
+        runtimeError: err.message || 'Execution error',
+        executionTimeMs: 0,
+        memoryKb: 0
+      };
+    }
 
     maxTime = Math.max(maxTime, exec.executionTimeMs || 0);
     maxMem = Math.max(maxMem, exec.memoryKb || 0);

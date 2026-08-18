@@ -2,12 +2,12 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api } from '../../lib/api';
 
-type TabType = 'DEPARTMENTS' | 'TEACHERS' | 'STUDENTS' | 'APPROVALS' | 'RESULTS' | 'RETEST_REQUESTS' | 'AUDIT_LOGS';
+type TabType = 'DEPARTMENTS' | 'TEACHERS' | 'STUDENTS' | 'APPROVALS' | 'RESULTS' | 'RETEST_REQUESTS' | 'AUDIT_LOGS' | 'EXTENSION_SECURITY';
 
 export function AdminDashboard() {
   const [searchParams, setSearchParams] = useSearchParams();
   const urlTab = (searchParams.get('tab') as TabType) || 'DEPARTMENTS';
-  const activeTab: TabType = ['DEPARTMENTS', 'TEACHERS', 'STUDENTS', 'APPROVALS', 'RESULTS', 'RETEST_REQUESTS', 'AUDIT_LOGS'].includes(urlTab) ? urlTab : 'DEPARTMENTS';
+  const activeTab: TabType = ['DEPARTMENTS', 'TEACHERS', 'STUDENTS', 'APPROVALS', 'RESULTS', 'RETEST_REQUESTS', 'AUDIT_LOGS', 'EXTENSION_SECURITY'].includes(urlTab) ? urlTab : 'DEPARTMENTS';
 
   const setActiveTab = (tab: TabType) => {
     setSearchParams({ tab });
@@ -23,6 +23,13 @@ export function AdminDashboard() {
   const [studentResults, setStudentResults] = useState<any[]>([]);
   const [retestRequests, setRetestRequests] = useState<any[]>([]);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
+  const [extSecurityLogs, setExtSecurityLogs] = useState<any[]>([]);
+  const [extSettings, setExtSettings] = useState<any>({
+    requireExtension: true,
+    lockOnDisconnect: true,
+    disconnectToleranceSeconds: 5,
+    allowExamResume: true
+  });
 
   // Filter states
   const [selectedDeptTeacher, setSelectedDeptTeacher] = useState<string>('ALL');
@@ -42,14 +49,15 @@ export function AdminDashboard() {
     try {
       setLoading(true);
 
-      const [depts, tchs, stds, exms, res, retests, logs] = await Promise.all([
+      const [depts, tchs, stds, exms, res, retests, logs, extAudit] = await Promise.all([
         api<any[]>('/api/admin/departments').catch(() => []),
         api<any[]>('/api/admin/teachers').catch(() => []),
         api<any[]>('/api/admin/students').catch(() => []),
         api<any[]>('/api/admin/exams').catch(() => []),
         api<any[]>('/api/admin/results').catch(() => []),
         api<any>('/api/attempts/retest-requests').catch(() => ({ requests: [] })),
-        api<any[]>('/api/admin/audit-logs').catch(() => [])
+        api<any[]>('/api/admin/audit-logs').catch(() => []),
+        api<any>('/api/extension/audit-logs').catch(() => ({ logs: [], securitySettings: {} }))
       ]);
 
       setDepartments(depts);
@@ -59,6 +67,10 @@ export function AdminDashboard() {
       setStudentResults(res);
       setRetestRequests(retests.requests || []);
       setAuditLogs(logs);
+      if (extAudit && extAudit.logs) {
+        setExtSecurityLogs(extAudit.logs);
+        if (extAudit.securitySettings) setExtSettings(extAudit.securitySettings);
+      }
     } catch (err) {
       console.error('Failed to load admin dashboard data', err);
     } finally {
@@ -168,7 +180,8 @@ export function AdminDashboard() {
           { key: 'APPROVALS', label: `📋 4. Test Approvals (${pendingApprovalExams.length})` },
           { key: 'RESULTS', label: '📊 5. Student Results' },
           { key: 'RETEST_REQUESTS', label: `📩 6. Retest Requests (${retestRequests.filter(r => r.status === 'PENDING_ADMIN').length})` },
-          { key: 'AUDIT_LOGS', label: '🛡️ 7. Audit Logs' }
+          { key: 'AUDIT_LOGS', label: '🛡️ 7. Audit Logs' },
+          { key: 'EXTENSION_SECURITY', label: '🔒 8. E-Extension Security' }
         ].map((tab) => (
           <button
             key={tab.key}
@@ -630,8 +643,122 @@ export function AdminDashboard() {
                         </td>
                       </tr>
                     ))}
-                  </tbody>
                 </table>
+              </div>
+            </div>
+          )}
+
+          {/* MENU 8: E-EXTENSION SECURITY CONTROLS & MONITORING */}
+          {activeTab === 'EXTENSION_SECURITY' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+              {/* Security Policy Settings Card */}
+              <div style={{ background: 'rgba(17, 24, 39, 0.8)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '14px', padding: '1.5rem' }}>
+                <h3 style={{ margin: '0 0 0.5rem 0', fontSize: '1.1rem', color: '#f3f4f6' }}>🔒 E-Extension Security Policies & Controls</h3>
+                <div style={{ fontSize: '0.82rem', color: '#9ca3af', marginBottom: '1.5rem' }}>
+                  Configure mandatory extension enforcement, disconnect lock rules, and cheating prevention tolerances.
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.25rem' }}>
+                  <div style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '10px', padding: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#f3f4f6' }}>Require E-Extension</div>
+                      <div style={{ fontSize: '0.78rem', color: '#9ca3af' }}>Block exam start if E-Extension is inactive</div>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={extSettings.requireExtension}
+                      onChange={(e) => {
+                        const updated = { ...extSettings, requireExtension: e.target.checked };
+                        setExtSettings(updated);
+                        api('/api/extension/security-settings', { method: 'POST', body: JSON.stringify(updated) });
+                      }}
+                      style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                    />
+                  </div>
+
+                  <div style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '10px', padding: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#f3f4f6' }}>Lock Exam on Disconnect</div>
+                      <div style={{ fontSize: '0.78rem', color: '#9ca3af' }}>Immediately pause test on heartbeat loss</div>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={extSettings.lockOnDisconnect}
+                      onChange={(e) => {
+                        const updated = { ...extSettings, lockOnDisconnect: e.target.checked };
+                        setExtSettings(updated);
+                        api('/api/extension/security-settings', { method: 'POST', body: JSON.stringify(updated) });
+                      }}
+                      style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                    />
+                  </div>
+
+                  <div style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '10px', padding: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#f3f4f6' }}>Allow Exam Resume</div>
+                      <div style={{ fontSize: '0.78rem', color: '#9ca3af' }}>Permit student to resume after re-verifying</div>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={extSettings.allowExamResume}
+                      onChange={(e) => {
+                        const updated = { ...extSettings, allowExamResume: e.target.checked };
+                        setExtSettings(updated);
+                        api('/api/extension/security-settings', { method: 'POST', body: JSON.stringify(updated) });
+                      }}
+                      style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Real-time E-Extension Security Event Audit Trail */}
+              <div style={{ background: 'rgba(17, 24, 39, 0.8)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '14px', padding: '1.5rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#f3f4f6' }}>🛡️ Extension Security Disconnect & Violation Audit Logs</h3>
+                    <div style={{ fontSize: '0.8rem', color: '#9ca3af' }}>Real-time backend record of session heartbeats, extension disconnects, and lock events</div>
+                  </div>
+                  <span style={{ background: 'rgba(99, 102, 241, 0.2)', color: '#818cf8', padding: '0.35rem 0.8rem', borderRadius: '12px', fontSize: '0.8rem', fontWeight: 700 }}>
+                    Total Events: {extSecurityLogs.length}
+                  </span>
+                </div>
+
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.85rem' }}>
+                    <thead>
+                      <tr style={{ background: 'rgba(255,255,255,0.04)', borderBottom: '1px solid rgba(255,255,255,0.08)', color: '#9ca3af' }}>
+                        <th style={{ padding: '0.75rem 1rem' }}>Timestamp</th>
+                        <th style={{ padding: '0.75rem 1rem' }}>Event Type</th>
+                        <th style={{ padding: '0.75rem 1rem' }}>Student Details</th>
+                        <th style={{ padding: '0.75rem 1rem' }}>Exam</th>
+                        <th style={{ padding: '0.75rem 1rem' }}>Security Event Log</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {extSecurityLogs.map((log) => (
+                        <tr key={log.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                          <td style={{ padding: '0.75rem 1rem', color: '#9ca3af', fontFamily: 'monospace' }}>{new Date(log.timestamp).toLocaleTimeString()}</td>
+                          <td style={{ padding: '0.75rem 1rem' }}>
+                            <span style={{
+                              padding: '0.2rem 0.6rem',
+                              borderRadius: '6px',
+                              fontSize: '0.75rem',
+                              fontWeight: 800,
+                              background: log.type === 'EXTENSION_VERIFIED' ? 'rgba(16, 185, 129, 0.15)' : log.type === 'EXTENSION_DISCONNECTED' ? 'rgba(239, 68, 68, 0.2)' : 'rgba(245, 158, 11, 0.2)',
+                              color: log.type === 'EXTENSION_VERIFIED' ? '#34d399' : log.type === 'EXTENSION_DISCONNECTED' ? '#f87171' : '#fbbf24'
+                            }}>
+                              {log.type}
+                            </span>
+                          </td>
+                          <td style={{ padding: '0.75rem 1rem', color: '#f3f4f6', fontWeight: 600 }}>{log.studentName}</td>
+                          <td style={{ padding: '0.75rem 1rem', color: '#cbd5e1' }}>{log.examTitle}</td>
+                          <td style={{ padding: '0.75rem 1rem', color: '#9ca3af' }}>{log.details}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           )}

@@ -36,14 +36,15 @@ async function runInDocker(workDir, language, stdin) {
 
   let script = '';
   if (language === 'c') {
-    script = 'apt-get update -qq && apt-get install -y -qq gcc g++ python3 openjdk-17-jdk-headless >/dev/null 2>&1; ';
-    script += 'gcc main.c -O2 -o main 2>compile.err && ./main < input.txt > output.txt 2>runtime.err || true';
+    script = 'gcc main.c -O2 -o main 2>compile.err && ./main < input.txt > output.txt 2>runtime.err || true';
+  } else if (language === 'cpp') {
+    script = 'g++ main.cpp -O2 -o main 2>compile.err && ./main < input.txt > output.txt 2>runtime.err || true';
   } else if (language === 'java') {
-    script = 'apt-get update -qq && apt-get install -y -qq openjdk-17-jdk-headless >/dev/null 2>&1; ';
-    script += 'javac Main.java 2>compile.err && java Main < input.txt > output.txt 2>runtime.err || true';
-  } else if (language === 'python') {
-    script = 'apt-get update -qq && apt-get install -y -qq python3 >/dev/null 2>&1; ';
-    script += 'python3 main.py < input.txt > output.txt 2>runtime.err || true';
+    script = 'javac Main.java 2>compile.err && java Main < input.txt > output.txt 2>runtime.err || true';
+  } else if (language === 'python' || language === 'py') {
+    script = 'python3 main.py < input.txt > output.txt 2>runtime.err || true';
+  } else if (language === 'javascript' || language === 'js') {
+    script = 'node main.js < input.txt > output.txt 2>runtime.err || true';
   }
 
   dockerArgs.push(script);

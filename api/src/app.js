@@ -7,6 +7,7 @@ import codingRoutes from './routes/coding.js';
 import attemptRoutes from './routes/attempts.js';
 import teacherRoutes from './routes/teacher.js';
 import adminRoutes from './routes/admin.js';
+import extensionRoutes from './routes/extension.js';
 import { prisma } from './lib/prisma.js';
 
 export function createApp() {
@@ -70,6 +71,7 @@ export function createApp() {
   app.use('/api/attempts', attemptRoutes);
   app.use('/api/teacher', teacherRoutes);
   app.use('/api/admin', adminRoutes);
+  app.use('/api/extension', extensionRoutes);
 
   app.use((err, _req, res, _next) => {
     console.error(err);

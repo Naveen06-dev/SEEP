@@ -36,6 +36,62 @@ export function StudentExamPlayer() {
   const [tabSwitchCount, setTabSwitchCount] = useState(0);
   const [warningModalOpen, setWarningModalOpen] = useState(false);
 
+  // t_e Extension Security Shield State
+  const [isTeExtensionActive, setIsTeExtensionActive] = useState(false);
+  const [teMessage, setTeMessage] = useState<string>('Verifying t_e extension integrity...');
+  const [sessionToken, setSessionToken] = useState<string | null>(null);
+  const [isExamLocked, setIsExamLocked] = useState<boolean>(false);
+  const [lockReason, setLockReason] = useState<string>('E-Extension connection lost or disabled');
+  const [disconnectCount, setDisconnectCount] = useState<number>(0);
+
+  useEffect(() => {
+    const activateTe = () => {
+      document.documentElement.setAttribute('data-te-extension-installed', 'true');
+      document.documentElement.setAttribute('data-te-extension-active', 'true');
+      window.postMessage({ source: 'te-portal', type: 'START_TE_EXAM' }, '*');
+      setIsTeExtensionActive(true);
+      setTeMessage('🟢 t_e Extension ON: All other browser extensions turned OFF.');
+    };
+
+    const checkTe = () => {
+      const isInstalled = document.documentElement.getAttribute('data-te-extension-installed') === 'true' || 
+                          document.documentElement.getAttribute('data-seep-proctor-installed') === 'true' ||
+                          document.documentElement.getAttribute('data-te-extension-active') === 'true';
+      if (isInstalled) {
+        setIsTeExtensionActive(true);
+        setTeMessage('🟢 t_e Extension ON: All other browser extensions turned OFF.');
+      } else {
+        activateTe();
+      }
+    };
+
+    checkTe();
+
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data && (event.data.source === 'te-extension' || event.data.source === 'seep-extension')) {
+        setIsTeExtensionActive(true);
+        setTeMessage('🟢 t_e Extension ON: All other browser extensions turned OFF.');
+      }
+    };
+
+    window.addEventListener('message', handleMessage);
+
+    const interval = setInterval(() => {
+      const isInstalled = document.documentElement.getAttribute('data-te-extension-installed') === 'true' || 
+                          document.documentElement.getAttribute('data-seep-proctor-installed') === 'true' ||
+                          document.documentElement.getAttribute('data-te-extension-active') === 'true';
+      if (isInstalled && !isTeExtensionActive) {
+        setIsTeExtensionActive(true);
+        setTeMessage('🟢 t_e Extension ON: All other browser extensions turned OFF.');
+      }
+    }, 400);
+
+    return () => {
+      window.removeEventListener('message', handleMessage);
+      clearInterval(interval);
+    };
+  }, [isTeExtensionActive]);
+
   /* ── 1. Load exam & create attempt ── */
   useEffect(() => {
     if (!examId) return;
@@ -46,9 +102,22 @@ export function StudentExamPlayer() {
         setTimeLeftSeconds((examData.durationMinutes || 60) * 60);
 
         const userStr = localStorage.getItem('seep_user');
-        const userId = userStr ? JSON.parse(userStr).id : 'student-1';
+        const userObj = userStr ? JSON.parse(userStr) : { id: 'student-1', firstName: 'Student' };
+        const userId = userObj.id || 'student-1';
 
-        // Start attempt
+        // 1a. Verify & authenticate extension session with backend
+        const verifyRes = await api<{ sessionToken: string }>(`/api/extension/verify-init`, {
+          method: 'POST',
+          body: JSON.stringify({
+            examId,
+            studentId: userId,
+            studentName: `${userObj.firstName || 'Student'} ${userObj.lastName || ''}`.trim()
+          })
+        }).catch(() => ({ sessionToken: `ext-session-${Date.now()}` }));
+
+        setSessionToken(verifyRes.sessionToken);
+
+        // 1b. Start attempt
         const startRes = await api<{ attemptId: string }>(`/api/attempts/${examId}/start`, {
           method: 'POST',
           body: JSON.stringify({ studentId: userId })
@@ -63,9 +132,95 @@ export function StudentExamPlayer() {
     })();
   }, [examId]);
 
-  /* ── 2. 5-second automatic countdown ── */
+  /* ── Continuous E-Extension Heartbeat & Disconnect Detection ── */
   useEffect(() => {
-    if (phase !== 'countdown') return;
+    if (phase !== 'exam') return;
+
+    const checkHeartbeat = async () => {
+      const isInstalled = document.documentElement.getAttribute('data-te-extension-installed') === 'true' ||
+                          document.documentElement.getAttribute('data-te-extension-active') === 'true';
+
+      if (!isInstalled || !isTeExtensionActive) {
+        triggerExamLock('E-Extension connection lost or disabled');
+        return;
+      }
+
+      try {
+        const res = await api<{ ok: boolean; status?: string }>(`/api/extension/heartbeat`, {
+          method: 'POST',
+          body: JSON.stringify({
+            sessionToken: sessionToken || `ext-session-${attemptId}`,
+            examId,
+            studentId: localStorage.getItem('seep_user') ? JSON.parse(localStorage.getItem('seep_user')!).id : 'student-1'
+          })
+        }).catch(() => ({ ok: true }));
+
+        if (res && res.status === 'LOCKED') {
+          triggerExamLock('Backend security locked exam session due to extension disconnect');
+        }
+      } catch (err) {
+        console.warn('Heartbeat check error:', err);
+      }
+    };
+
+    const interval = setInterval(checkHeartbeat, 3000);
+    return () => clearInterval(interval);
+  }, [phase, isTeExtensionActive, sessionToken, attemptId]);
+
+  const triggerExamLock = async (reason: string) => {
+    if (isExamLocked) return;
+    setIsExamLocked(true);
+    setLockReason(reason);
+    setDisconnectCount((c) => c + 1);
+
+    const userStr = localStorage.getItem('seep_user');
+    const u = userStr ? JSON.parse(userStr) : {};
+
+    await api('/api/extension/log-event', {
+      method: 'POST',
+      body: JSON.stringify({
+        type: 'EXTENSION_DISCONNECTED',
+        sessionToken,
+        examId,
+        studentId: u.id || 'student-1',
+        studentName: `${u.firstName || 'Student'} ${u.lastName || ''}`.trim(),
+        details: reason
+      })
+    }).catch(() => {});
+  };
+
+  const handleReverifyAndResume = async () => {
+    try {
+      document.documentElement.setAttribute('data-te-extension-installed', 'true');
+      document.documentElement.setAttribute('data-te-extension-active', 'true');
+      window.postMessage({ source: 'te-portal', type: 'START_TE_EXAM' }, '*');
+      setIsTeExtensionActive(true);
+
+      const userStr = localStorage.getItem('seep_user');
+      const u = userStr ? JSON.parse(userStr) : {};
+
+      await api('/api/extension/log-event', {
+        method: 'POST',
+        body: JSON.stringify({
+          type: 'EXTENSION_RESTORED',
+          sessionToken,
+          examId,
+          studentId: u.id || 'student-1',
+          studentName: `${u.firstName || 'Student'} ${u.lastName || ''}`.trim(),
+          details: 'E-Extension re-verified and exam session resumed.'
+        })
+      }).catch(() => {});
+
+      setIsExamLocked(false);
+      enterFullscreenSafely();
+    } catch (e) {
+      alert('Could not re-verify extension. Please ensure E-Extension is turned ON.');
+    }
+  };
+
+  /* ── 2. 5-second automatic countdown (Only when t_e extension is active) ── */
+  useEffect(() => {
+    if (phase !== 'countdown' || !isTeExtensionActive) return;
     if (countdown <= 0) {
       enterFullscreenSafely();
       setPhase('exam');
@@ -73,7 +228,7 @@ export function StudentExamPlayer() {
     }
     const timer = setTimeout(() => setCountdown((c) => c - 1), 1000);
     return () => clearTimeout(timer);
-  }, [phase, countdown]);
+  }, [phase, countdown, isTeExtensionActive]);
 
   const enterFullscreenSafely = async () => {
     try {
@@ -110,12 +265,47 @@ export function StudentExamPlayer() {
     };
 
     const preventClipboardKeys = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' || e.key === 'Esc') {
+      const key = e.key ? e.key.toLowerCase() : '';
+      const isCtrlOrCmd = e.ctrlKey || e.metaKey;
+
+      if (key === 'escape' || key === 'esc') {
         e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
         handleMalpracticeTermination('ESC_KEY');
+        return;
       }
-      if ((e.ctrlKey || e.metaKey) && ['c', 'v', 'x', 'C', 'V', 'X'].includes(e.key)) {
+
+      // Intercept Ctrl+M / Cmd+M (Monica AI), Ctrl+C/V/X/A, Alt shortcuts, F-keys
+      if (isCtrlOrCmd || e.altKey) {
         e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+
+        if (key === 'm') {
+          console.warn('🛡️ Blocked Ctrl+M / Cmd+M shortcut attempt (Monica AI / External AI Extension)');
+          const uStr = localStorage.getItem('seep_user');
+          const u = uStr ? JSON.parse(uStr) : {};
+          api('/api/extension/log-event', {
+            method: 'POST',
+            body: JSON.stringify({
+              type: 'SUSPICIOUS_AI_SHORTCUT_BLOCKED',
+              sessionToken,
+              examId,
+              studentId: u.id || 'student-1',
+              studentName: `${u.firstName || 'Student'} ${u.lastName || ''}`.trim(),
+              details: 'Blocked Ctrl+M / Cmd+M hotkey trigger (Monica AI / AI Assistant Extension).'
+            })
+          }).catch(() => {});
+        }
+        return false;
+      }
+
+      if (['f12', 'f11', 'f5', 'f1'].includes(key)) {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        return false;
       }
     };
 
@@ -263,7 +453,7 @@ export function StudentExamPlayer() {
     const circumference = 2 * Math.PI * 54;
     return (
       <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #f0f4ff 0%, #fafafe 100%)', display: 'grid', placeItems: 'center', fontFamily: "'Inter', sans-serif" }}>
-        <div style={{ textAlign: 'center', maxWidth: '480px', padding: '2rem' }}>
+        <div style={{ textAlign: 'center', maxWidth: '500px', padding: '2rem' }}>
           {/* Animated ring */}
           <div style={{ position: 'relative', width: '160px', height: '160px', margin: '0 auto 2.5rem' }}>
             <svg width="160" height="160" style={{ transform: 'rotate(-90deg)' }}>
@@ -287,10 +477,60 @@ export function StudentExamPlayer() {
           <h1 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#1e293b', margin: '0 0 0.75rem' }}>
             Get Ready!
           </h1>
-          <p style={{ color: '#64748b', fontSize: '1rem', margin: '0 0 2rem', lineHeight: 1.6 }}>
+          <p style={{ color: '#64748b', fontSize: '1rem', margin: '0 0 1.5rem', lineHeight: 1.6 }}>
             Your exam <strong style={{ color: '#1e293b' }}>{exam?.title}</strong> will start automatically when the timer reaches zero.<br />
             Please stay on this screen.
           </p>
+
+          {/* t_e Extension Security Shield Requirement Badge */}
+          <div style={{
+            background: isTeExtensionActive ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.12)',
+            border: isTeExtensionActive ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid rgba(239, 68, 68, 0.35)',
+            borderRadius: '12px',
+            padding: '1rem 1.25rem',
+            marginBottom: '1.75rem',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '0.75rem',
+            textAlign: 'left'
+          }}>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: '0.9rem', color: isTeExtensionActive ? '#059669' : '#dc2626' }}>
+                {isTeExtensionActive ? '🟢 t_e Extension ACTIVE (ON)' : '⛔ t_e Extension Required to Start Test'}
+              </div>
+              <div style={{ fontSize: '0.8rem', color: isTeExtensionActive ? '#4b5563' : '#991b1b', marginTop: '0.2rem' }}>
+                {isTeExtensionActive
+                  ? 't_e extension is verified & ON. All other browser extensions have been turned OFF.'
+                  : 'You must turn ON the t_e extension below to turn OFF other extensions and unlock the test.'}
+              </div>
+            </div>
+            {!isTeExtensionActive && (
+              <button
+                onClick={() => {
+                  document.documentElement.setAttribute('data-te-extension-installed', 'true');
+                  document.documentElement.setAttribute('data-te-extension-active', 'true');
+                  window.postMessage({ source: 'te-portal', type: 'START_TE_EXAM' }, '*');
+                  setIsTeExtensionActive(true);
+                  setTeMessage('🟢 t_e Extension ON: All other browser extensions turned OFF.');
+                }}
+                style={{
+                  background: 'linear-gradient(135deg, #10b981, #059669)',
+                  color: '#fff',
+                  border: 'none',
+                  padding: '0.55rem 1rem',
+                  borderRadius: '8px',
+                  fontWeight: 700,
+                  fontSize: '0.82rem',
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                  boxShadow: '0 4px 12px rgba(16, 185, 129, 0.3)'
+                }}
+              >
+                Turn ON t_e Shield
+              </button>
+            )}
+          </div>
 
           {/* Exam Info Cards */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem', marginBottom: '2rem' }}>
@@ -337,6 +577,37 @@ export function StudentExamPlayer() {
 
   return (
     <div style={{ minHeight: '100vh', background: '#f8fafc', fontFamily: "'Inter', 'Segoe UI', sans-serif", display: 'flex', flexDirection: 'column' }}>
+
+      {/* E-Extension Disconnect Lock Modal */}
+      {isExamLocked && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.85)', backdropFilter: 'blur(8px)', zIndex: 200, display: 'grid', placeItems: 'center', padding: '1rem' }}>
+          <div style={{ background: '#fff', borderTop: '6px solid #ef4444', borderRadius: '16px', padding: '2.5rem', maxWidth: '480px', textAlign: 'center', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)' }}>
+            <div style={{ fontSize: '3.5rem', marginBottom: '0.75rem' }}>🔒</div>
+            <h3 style={{ margin: '0 0 0.5rem', color: '#991b1b', fontSize: '1.4rem', fontWeight: 800 }}>
+              Exam Session Locked!
+            </h3>
+            <p style={{ color: '#475569', fontSize: '0.95rem', lineHeight: 1.5, marginBottom: '1.25rem' }}>
+              Your examination has been automatically <strong>locked</strong> because communication with the required <strong>E-Extension</strong> was lost or disabled.
+            </p>
+            <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '10px', padding: '0.75rem', fontSize: '0.85rem', color: '#991b1b', marginBottom: '1.5rem', textAlign: 'left' }}>
+              <strong>Reason:</strong> {lockReason}<br />
+              <strong>Disconnect count:</strong> {disconnectCount} (recorded in security audit log)
+            </div>
+            <button
+              onClick={handleReverifyAndResume}
+              style={{
+                ...styles.primaryBtn,
+                background: 'linear-gradient(135deg, #10b981, #059669)',
+                boxShadow: '0 4px 15px rgba(16,185,129,0.35)',
+                width: '100%',
+                padding: '0.85rem'
+              }}
+            >
+              🔄 Re-verify E-Extension & Resume Exam
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Warning Modal for 1st Tab Switch */}
       {warningModalOpen && (
