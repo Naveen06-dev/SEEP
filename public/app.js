@@ -651,16 +651,32 @@ function handleMouseLeaveExam(e) {
 
 function handleWindowBlurExam() {
     if (state.activeExam && state.examViolationTracking && !state.examViolationHandled) {
-        triggerImmediateMalpractice('WINDOW_BLUR', 'Student left the test window (focused another app or clicked Windows button)');
+        setTimeout(() => {
+            if (!document.hasFocus()) {
+                triggerImmediateMalpractice('WINDOW_BLUR', 'Student left the test window (focused another app or clicked Windows button)');
+            }
+        }, 250);
     }
 }
 
 function handleKeydownExam(e) {
     if (state.activeExam && state.examViolationTracking && !state.examViolationHandled) {
-        // Block Escape, Meta, Alt, Tab
-        if (e.key === 'Escape' || e.key === 'Meta' || e.metaKey || e.altKey || e.key === 'Tab') {
+        const key = e.key ? e.key.toLowerCase() : '';
+        const code = e.code ? e.code.toLowerCase() : '';
+        // Block Escape, Meta, Windows Key, Windows+G, Alt, Tab
+        if (
+            e.key === 'Escape' ||
+            e.key === 'Meta' ||
+            key === 'os' ||
+            key === 'win' ||
+            code.includes('meta') ||
+            e.metaKey ||
+            (e.metaKey && (key === 'g' || code === 'keyg')) ||
+            e.altKey ||
+            e.key === 'Tab'
+        ) {
             e.preventDefault();
-            triggerImmediateMalpractice('KEY_MUTATION', `Student pressed prohibited key or shortcut: ${e.key}`);
+            triggerImmediateMalpractice('WINDOWS_G_KEY', `Student pressed prohibited key or shortcut (Windows key / Windows+G): ${e.key}`);
             return;
         }
         // Block F12, Ctrl+Shift+I, Ctrl+Shift+J, Ctrl+Shift+C, Ctrl+U

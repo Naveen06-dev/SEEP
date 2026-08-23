@@ -84,7 +84,13 @@ export function createApp() {
 export function createSocketServer(app) {
   const httpServer = createServer(app);
   const io = new Server(httpServer, {
-    cors: { origin: process.env.CORS_ORIGIN || '*' }
+    cors: {
+      origin: '*',
+      methods: ['GET', 'POST'],
+      credentials: true
+    },
+    transports: ['websocket', 'polling'],
+    allowEIO3: true
   });
 
   io.on('connection', (socket) => {

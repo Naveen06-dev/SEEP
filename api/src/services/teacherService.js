@@ -13,16 +13,16 @@ const MOCK_PROFILE = {
 const MOCK_EXAMS = [
   {
     id: 'exam-demo-1',
-    title: 'Data Structures & Algorithms Final',
+    title: 'Manual Proctoring Test (1 MCQ + 1 Coding)',
     subject: 'Computer Science 101',
     department: 'Computer Science',
     durationMinutes: 60,
     scheduleStart: new Date(),
     scheduleEnd: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
     status: 'ACTIVE',
-    mcqCount: 2,
+    mcqCount: 1,
     codingCount: 1,
-    totalMarks: 25,
+    totalMarks: 20,
     creatorId: 'user-teacher-1',
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -31,16 +31,7 @@ const MOCK_EXAMS = [
         id: 'mcq-1',
         examId: 'exam-demo-1',
         sequenceOrder: 1,
-        text: 'What is the time complexity of searching in a balanced Binary Search Tree?',
-        options: ['O(1)', 'O(log n)', 'O(n)', 'O(n^2)'],
-        correctIndex: 1,
-        marks: 5
-      },
-      {
-        id: 'mcq-2',
-        examId: 'exam-demo-1',
-        sequenceOrder: 2,
-        text: 'Which data structure follows LIFO (Last In First Out)?',
+        text: 'Which data structure operates on a LIFO (Last In First Out) basis?',
         options: ['Queue', 'Stack', 'Array', 'Linked List'],
         correctIndex: 1,
         marks: 5
@@ -51,7 +42,7 @@ const MOCK_EXAMS = [
         id: 'coding-1',
         examId: 'exam-demo-1',
         sequenceOrder: 1,
-        title: 'Two Sum',
+        title: 'Two Sum Problem',
         description: 'Given an array of integers `nums` and an integer `target`, return indices of the two numbers such that they add up to `target`.',
         inputFormat: 'Line 1: Space-separated integers\nLine 2: Target integer',
         outputFormat: 'Space-separated pair of indices',
@@ -61,12 +52,12 @@ const MOCK_EXAMS = [
         memoryLimitMB: 128,
         allowedLanguages: ['cpp', 'python', 'javascript', 'java'],
         starterCode: {
-          cpp: '#include <iostream>\nusing namespace std;\nint main() {\n  return 0;\n}',
-          python: 'def solve():\n    pass\n\nif __name__ == "__main__":\n    solve()',
-          javascript: 'const fs = require("fs");\n\nfunction main() {}\nmain();'
+          cpp: '#include <iostream>\nusing namespace std;\nint main() {\n  cout << "0 1" << endl;\n  return 0;\n}',
+          python: 'def solve():\n    print("0 1")\n\nif __name__ == "__main__":\n    solve()',
+          javascript: 'console.log("0 1");'
         },
         testCases: [
-          { id: 'tc-1', input: '2 7 11 15\n9', expectedOutput: '2 7', isHidden: false, weight: 1 }
+          { id: 'tc-1', input: '2 7 11 15\n9', expectedOutput: '0 1', isHidden: false, weight: 1 }
         ]
       }
     ]

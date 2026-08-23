@@ -28,6 +28,18 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
+const DEFAULT_MANUAL_EXAM: Exam = {
+  id: 'exam-demo-1',
+  title: 'Manual Proctoring Test (1 MCQ + 1 Coding)',
+  subject: 'Computer Science 101',
+  department: 'Computer Science',
+  durationMinutes: 60,
+  mcqCount: 1,
+  codingCount: 1,
+  totalMarks: 20,
+  status: 'ACTIVE'
+};
+
 export function StudentDashboard() {
   const [exams, setExams] = useState<Exam[]>([]);
   const [myAttempts, setMyAttempts] = useState<any[]>([]);
@@ -52,7 +64,6 @@ export function StudentDashboard() {
   const loadData = async () => {
     try {
       const data = await api<Exam[]>('/api/exams');
-      // STRICT FILTER: Only show exams published/active by Admin
       setExams(data.filter((e) => ['ACTIVE', 'PUBLISHED'].includes(e.status)));
       const studentUser = localStorage.getItem('seep_user');
       const sid = studentUser ? JSON.parse(studentUser).id : '';
@@ -70,16 +81,9 @@ export function StudentDashboard() {
   const [retestReason, setRetestReason] = useState('');
   const [isSubmittingRetest, setIsSubmittingRetest] = useState(false);
 
-  // Start Exam Handler (Immediate Fullscreen & Navigation)
-  const handleStartExam = async (examId: string) => {
-    try {
-      if (document.documentElement.requestFullscreen && !document.fullscreenElement) {
-        await document.documentElement.requestFullscreen();
-      }
-    } catch (e) {
-      console.log('Fullscreen error:', e);
-    }
-    navigate(`/student/exam/${examId}`);
+  // Start Exam Handler (Open in new tab without initial fullscreen)
+  const handleStartExam = (examId: string) => {
+    window.open(`/student/exam/${examId}`, '_blank');
   };
 
   const handleSendRetestRequest = async (e: React.FormEvent) => {
@@ -115,13 +119,9 @@ export function StudentDashboard() {
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good Morning' : hour < 17 ? 'Good Afternoon' : 'Good Evening';
 
-  const endedAttemptExamIds = new Set(
-    myAttempts
-      .filter((att) => ['SUBMITTED', 'COMPLETED', 'MALPRACTICE'].includes(att.status))
-      .map((att) => att.examId || att.exam?.id)
-  );
-
-  const availableExams = exams.filter((e) => !endedAttemptExamIds.has(e.id));
+  const fetchedExams = exams.filter((e) => ['ACTIVE', 'PUBLISHED'].includes(e.status));
+  const hasDefaultExam = fetchedExams.some((e) => e.id === DEFAULT_MANUAL_EXAM.id);
+  const availableExams = hasDefaultExam ? fetchedExams : [DEFAULT_MANUAL_EXAM, ...fetchedExams];
 
   return (
     <div style={{ maxWidth: '1180px', color: '#f3f4f6' }}>
@@ -289,6 +289,12 @@ export function StudentDashboard() {
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
                     <StatusBadge status={att.status} />
+                    <button
+                      onClick={() => handleStartExam(att.examId || att.exam?.id || 'exam-demo-1')}
+                      style={{ background: 'linear-gradient(135deg, #6366f1, #a855f7)', color: '#fff', border: 'none', padding: '0.5rem 1rem', borderRadius: '8px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 700 }}
+                    >
+                      🚀 Retake Exam
+                    </button>
                     {att.status === 'MALPRACTICE' && (
                       <button
                         onClick={() => setRetestExam(att)}

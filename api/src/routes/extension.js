@@ -98,22 +98,25 @@ router.post('/heartbeat', (req, res) => {
 
 // 3. Log Security & Disconnect Events
 router.post('/log-event', (req, res) => {
-  const { type, sessionToken, examId, studentId, studentName, details } = req.body || {};
+  const { type, eventType, sessionToken, examId, studentId, studentName, details, metadata } = req.body || {};
+  const resolvedType = eventType || type || 'SECURITY_ALERT';
 
   const session = sessionToken ? activeExtensionSessions.get(sessionToken) : null;
-  if (session && type === 'EXTENSION_DISCONNECTED') {
+  if (session && (resolvedType === 'EXTENSION_DISCONNECTED' || resolvedType === 'UNABLE_TO_DISABLE_EXTENSION')) {
     session.disconnectCount += 1;
     session.status = 'LOCKED';
   }
 
+  const resolvedDetails = metadata ? JSON.stringify(metadata) : (typeof details === 'object' ? JSON.stringify(details) : (details || `Event ${resolvedType} logged.`));
+
   const logEntry = {
     id: `log-${Date.now()}-${Math.floor(Math.random()*1000)}`,
     timestamp: new Date().toISOString(),
-    type: type || 'SECURITY_ALERT',
+    type: resolvedType,
     studentId: studentId || (session ? session.studentId : 'student-1'),
     studentName: studentName || (session ? session.studentName : 'Student'),
-    examTitle: examId || 'Examination',
-    details: typeof details === 'object' ? JSON.stringify(details) : (details || `Event ${type} logged.`)
+    examTitle: examId || (session ? session.examId : 'Examination'),
+    details: resolvedDetails
   };
 
   extensionAuditLogs.unshift(logEntry);

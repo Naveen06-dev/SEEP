@@ -54,8 +54,9 @@ router.post('/:id/start', async (req, res) => {
     }
 
     let attempt = mockAttempts.get(attemptKey);
-    if (attempt?.status === 'MALPRACTICE') {
-      return res.status(403).json({ error: 'Malpractice detected. Request retest approval.' });
+    if (attempt && (attempt.status === 'MALPRACTICE' || attempt.status === 'SUBMITTED' || attempt.status === 'COMPLETED')) {
+      mockAttempts.delete(attemptKey);
+      attempt = null;
     }
 
     if (!attempt) {
@@ -69,7 +70,7 @@ router.post('/:id/start', async (req, res) => {
       mockAttempts.set(attemptKey, attempt);
     }
 
-    res.json({ attemptId: attempt.id, examId: req.params.id });
+    res.json({ attemptId: attempt.id, examId: req.params.id, status: attempt.status || 'IN_PROGRESS' });
   } catch (e) {
     console.error('Start attempt error:', e);
     res.status(400).json({ error: e.message });
@@ -78,8 +79,10 @@ router.post('/:id/start', async (req, res) => {
 
 router.post('/:id/submit', async (req, res) => {
   try {
-    const { mcqAnswers } = req.body;
+    const { mcqAnswers, malpractice, malpracticeReason, malpracticeType } = req.body || {};
     let mcqScore = 0;
+    const finalStatus = malpractice ? 'MALPRACTICE' : 'SUBMITTED';
+
     try {
       const attempt = await prisma.examAttempt.findUnique({
         where: { id: req.params.id },
@@ -95,20 +98,20 @@ router.post('/:id/submit', async (req, res) => {
         const updated = await prisma.examAttempt.update({
           where: { id: req.params.id },
           data: {
-            status: 'SUBMITTED',
+            status: finalStatus,
             submittedAt: new Date(),
             mcqScore,
             totalScore: mcqScore
           }
         });
-        return res.json({ success: true, mcqScore, totalScore: updated.totalScore });
+        return res.json({ success: true, status: updated.status, mcqScore, totalScore: updated.totalScore });
       }
     } catch (err) {
       console.warn('DB error in submit attempt');
     }
 
     // Mock fallback submit
-    res.json({ success: true, mcqScore: 10, totalScore: 10 });
+    res.json({ success: true, status: finalStatus, mcqScore: 10, totalScore: 10 });
   } catch (e) {
     console.error('Submit attempt error:', e);
     res.status(400).json({ error: e.message });
@@ -166,7 +169,7 @@ router.post('/:id/proctor', async (req, res) => {
   try {
     const { studentId, studentName, regNo, examTitle, type, metadata } = req.body;
 
-    const terminateTypes = ['TAB_SWITCH', 'FULLSCREEN_EXIT', 'ESC_KEY', 'COPY_PASTE', 'EXTENSION_DETECTED'];
+    const terminateTypes = ['TAB_SWITCH', 'FULLSCREEN_EXIT', 'ESC_KEY', 'COPY_PASTE', 'EXTENSION_DETECTED', 'WINDOWS_G_KEY', 'WINDOWS_KEY', 'WINDOWS_OVERLAY_OR_FOCUS_LOST', 'WINDOW_BLUR', 'KEY_MUTATION'];
     const isTerminated = terminateTypes.includes(type);
 
     // Update in-memory mock map if present

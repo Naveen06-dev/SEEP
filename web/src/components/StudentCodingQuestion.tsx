@@ -37,7 +37,11 @@ export function StudentCodingQuestion({ attemptId, question }: Props) {
 
   useEffect(() => {
     const baseUrl = (API_URL || 'http://localhost:4000').replace('/api', '');
-    const socket = io(baseUrl);
+    const socket = io(baseUrl, {
+      transports: ['websocket', 'polling'],
+      reconnectionAttempts: 5,
+      timeout: 10000
+    });
     socket.emit('join-attempt', attemptId);
 
     const interval = setInterval(() => {

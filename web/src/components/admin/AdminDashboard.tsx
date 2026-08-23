@@ -643,26 +643,27 @@ export function AdminDashboard() {
                         </td>
                       </tr>
                     ))}
+                  </tbody>
                 </table>
               </div>
             </div>
           )}
 
-          {/* MENU 8: E-EXTENSION SECURITY CONTROLS & MONITORING */}
+          {/* MENU 8: NEOEXAMSHIELD SECURITY CONTROLS & MONITORING */}
           {activeTab === 'EXTENSION_SECURITY' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
               {/* Security Policy Settings Card */}
               <div style={{ background: 'rgba(17, 24, 39, 0.8)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '14px', padding: '1.5rem' }}>
-                <h3 style={{ margin: '0 0 0.5rem 0', fontSize: '1.1rem', color: '#f3f4f6' }}>🔒 E-Extension Security Policies & Controls</h3>
+                <h3 style={{ margin: '0 0 0.5rem 0', fontSize: '1.1rem', color: '#f3f4f6' }}>🔒 NeoExamShield Security Policies & Controls</h3>
                 <div style={{ fontSize: '0.82rem', color: '#9ca3af', marginBottom: '1.5rem' }}>
-                  Configure mandatory extension enforcement, disconnect lock rules, and cheating prevention tolerances.
+                  Restricts all third-party extensions except NeoExamShield. Configure mandatory enforcement, disconnect lock rules, and cheating prevention tolerances.
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.25rem' }}>
                   <div style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '10px', padding: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div>
-                      <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#f3f4f6' }}>Require E-Extension</div>
-                      <div style={{ fontSize: '0.78rem', color: '#9ca3af' }}>Block exam start if E-Extension is inactive</div>
+                      <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#f3f4f6' }}>Require NeoExamShield</div>
+                      <div style={{ fontSize: '0.78rem', color: '#9ca3af' }}>Block exam start if NeoExamShield is inactive</div>
                     </div>
                     <input
                       type="checkbox"
