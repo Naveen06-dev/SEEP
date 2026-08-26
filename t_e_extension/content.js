@@ -6,6 +6,7 @@ document.documentElement.setAttribute('data-te-extension-installed', 'true');
 document.documentElement.setAttribute('data-te-extension-active', 'true');
 document.documentElement.setAttribute('data-neoexamshield-installed', 'true');
 document.documentElement.setAttribute('data-neoexamshield-active', 'true');
+document.documentElement.setAttribute('data-te-exam-running', 'false');
 
 // Suppress third-party extension background rejection noise
 window.addEventListener('unhandledrejection', (event) => {
@@ -55,6 +56,7 @@ window.addEventListener("message", (event) => {
                 }, "*");
             }
         } else if (data.type === "START_TE_EXAM" || data.type === "START_NEOEXAMSHIELD") {
+            document.documentElement.setAttribute('data-te-exam-running', 'true');
             try {
                 chrome.runtime.sendMessage({
                     action: "START_TE_EXAM",
@@ -83,6 +85,7 @@ window.addEventListener("message", (event) => {
                 }, "*");
             }
         } else if (data.type === "STOP_TE_EXAM" || data.type === "STOP_NEOEXAMSHIELD") {
+            document.documentElement.setAttribute('data-te-exam-running', 'false');
             try {
                 chrome.runtime.sendMessage({ action: "STOP_TE_EXAM" }, (response) => {
                     window.postMessage({
@@ -153,10 +156,10 @@ window.postMessage({
     active: true
 }, "*");
 
-// Capture-Phase Hotkey & Shortcut Monitor (Ctrl+M, F12, Win keys)
+// Capture-Phase Hotkey & Shortcut Monitor (Only active during active exam running state)
 window.addEventListener("keydown", (e) => {
-    const isExamActive = document.documentElement.getAttribute('data-te-extension-active') === 'true';
-    if (!isExamActive) return;
+    const isExamRunning = document.documentElement.getAttribute('data-te-exam-running') === 'true';
+    if (!isExamRunning) return;
 
     const isCtrlOrCmd = e.ctrlKey || e.metaKey;
     const key = e.key ? e.key.toLowerCase() : '';
@@ -185,7 +188,7 @@ window.addEventListener("keydown", (e) => {
         e.preventDefault();
         e.stopPropagation();
         e.stopImmediatePropagation();
-        console.warn("🛡️ t_e Extension: Suspicious shortcut Ctrl+M / Cmd+M intercepted.");
+        console.log("🛡️ t_e Extension: Suspicious shortcut Ctrl+M / Cmd+M intercepted.");
         reportShortcutEvent("SUSPICIOUS_AI_SHORTCUT_BLOCKED", { shortcut: "Ctrl/Cmd+M" });
         return;
     }

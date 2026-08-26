@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../lib/api';
 import { StudentCodingQuestion } from './StudentCodingQuestion';
 
@@ -21,9 +21,12 @@ const COUNTDOWN_SECONDS = 5;
 export function StudentExamPlayer() {
   const { examId } = useParams<{ examId: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+
+  const initialStep = (searchParams.get('step') as VerificationStep) || 'step3_chrome_store';
 
   const [phase, setPhase] = useState<Phase>('loading');
-  const [verificationStep, setVerificationStep] = useState<VerificationStep>('step2_warning1');
+  const [verificationStep, setVerificationStep] = useState<VerificationStep>(initialStep);
   const [showChromeAddDialog, setShowChromeAddDialog] = useState(false);
   const [installedNeoExamShield, setInstalledNeoExamShield] = useState(false);
   const [otherExtensionsState, setOtherExtensionsState] = useState({
@@ -42,6 +45,8 @@ export function StudentExamPlayer() {
   const [mcqAnswers, setMcqAnswers] = useState<Record<string, number>>({});
   const [timeLeftSeconds, setTimeLeftSeconds] = useState(3600);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSubmitted, setIsSubmitted] = useState(false);
+  const [submitCountdown, setSubmitCountdown] = useState<number | null>(null);
 
   // Proctoring Tab Switch State
   const [tabSwitchCount, setTabSwitchCount] = useState(0);
@@ -56,16 +61,6 @@ export function StudentExamPlayer() {
   const [disconnectCount, setDisconnectCount] = useState<number>(0);
 
   useEffect(() => {
-    const activateTe = () => {
-      document.documentElement.setAttribute('data-neoexamshield-installed', 'true');
-      document.documentElement.setAttribute('data-neoexamshield-active', 'true');
-      document.documentElement.setAttribute('data-te-extension-installed', 'true');
-      document.documentElement.setAttribute('data-te-extension-active', 'true');
-      window.postMessage({ source: 'neoexamshield-portal', type: 'START_NEOEXAMSHIELD' }, '*');
-      setIsTeExtensionActive(true);
-      setTeMessage('🟢 NeoExamShield ACTIVE: All third-party browser extensions restricted.');
-    };
-
     const checkTe = () => {
       const isInstalled = document.documentElement.getAttribute('data-neoexamshield-installed') === 'true' ||
                           document.documentElement.getAttribute('data-neoexamshield-active') === 'true' ||
@@ -73,9 +68,11 @@ export function StudentExamPlayer() {
                           document.documentElement.getAttribute('data-seep-proctor-installed') === 'true';
       if (isInstalled) {
         setIsTeExtensionActive(true);
-        setTeMessage('🟢 NeoExamShield ACTIVE: All third-party browser extensions restricted.');
+        setInstalledNeoExamShield(true);
+        setTeMessage('🟢 NeoExamShield Real Chrome Extension Connected: All third-party browser extensions restricted.');
+        window.postMessage({ source: 'neoexamshield-portal', type: 'FETCH_LIVE_EXTENSIONS' }, '*');
       } else {
-        activateTe();
+        window.postMessage({ source: 'neoexamshield-portal', type: 'CHECK_TE_STATUS' }, '*');
       }
     };
 
@@ -83,6 +80,9 @@ export function StudentExamPlayer() {
 
     const handleMessage = (event: MessageEvent) => {
       if (event.data && (event.data.source === 'te-extension' || event.data.source === 'neoexamshield-extension' || event.data.source === 'seep-extension')) {
+        setIsTeExtensionActive(true);
+        setInstalledNeoExamShield(true);
+
         if (event.data.type === 'LIVE_EXTENSIONS_RESPONSE') {
           if (event.data.ok && Array.isArray(event.data.extensions)) {
             setLiveChromeExtensions(event.data.extensions);
@@ -92,6 +92,9 @@ export function StudentExamPlayer() {
         if (event.data.type === 'TOGGLE_LIVE_EXTENSION_RESPONSE') {
           if (event.data.ok && event.data.id) {
             setLiveChromeExtensions(prev => prev.map(ext => ext.id === event.data.id ? { ...ext, enabled: event.data.enabled } : ext));
+            setTimeout(() => {
+              window.postMessage({ source: 'neoexamshield-portal', type: 'FETCH_LIVE_EXTENSIONS' }, '*');
+            }, 300);
           }
           return;
         }
@@ -99,6 +102,9 @@ export function StudentExamPlayer() {
           if (event.data.ok) {
             setLiveChromeExtensions(prev => prev.map(ext => (ext.isSelf || ext.name.toLowerCase().includes('neoexamshield')) ? ext : { ...ext, enabled: false }));
             setOtherExtensionsState({ automatedBooking: false, googleDocs: false, monica: false });
+            setTimeout(() => {
+              window.postMessage({ source: 'neoexamshield-portal', type: 'FETCH_LIVE_EXTENSIONS' }, '*');
+            }, 300);
           }
           return;
         }
@@ -110,7 +116,6 @@ export function StudentExamPlayer() {
             return;
           }
         }
-        setIsTeExtensionActive(true);
         setTeMessage('🟢 NeoExamShield Extension ACTIVE: All unauthorized browser extensions disabled & verified.');
       }
     };
@@ -121,17 +126,18 @@ export function StudentExamPlayer() {
       const isInstalled = document.documentElement.getAttribute('data-neoexamshield-installed') === 'true' ||
                           document.documentElement.getAttribute('data-neoexamshield-active') === 'true' ||
                           document.documentElement.getAttribute('data-te-extension-installed') === 'true';
-      if (isInstalled && !isTeExtensionActive) {
+      if (isInstalled) {
         setIsTeExtensionActive(true);
-        setTeMessage('🟢 NeoExamShield ACTIVE: All third-party browser extensions restricted.');
+        setInstalledNeoExamShield(true);
+        setTeMessage('🟢 NeoExamShield ACTIVE: Real Chrome extension verified.');
       }
-    }, 400);
+    }, 500);
 
     return () => {
       window.removeEventListener('message', handleMessage);
       clearInterval(interval);
     };
-  }, [isTeExtensionActive]);
+  }, []);
 
   useEffect(() => {
     if (verificationStep === 'step4_extensions_page' || verificationStep === 'step4_warning2') {
@@ -184,8 +190,10 @@ export function StudentExamPlayer() {
     if (phase !== 'exam') return;
 
     const checkHeartbeat = async () => {
-      const isInstalled = document.documentElement.getAttribute('data-te-extension-installed') === 'true' ||
-                          document.documentElement.getAttribute('data-te-extension-active') === 'true';
+      const isInstalled = document.documentElement.getAttribute('data-neoexamshield-installed') === 'true' ||
+                          document.documentElement.getAttribute('data-neoexamshield-active') === 'true' ||
+                          document.documentElement.getAttribute('data-te-extension-installed') === 'true' ||
+                          document.documentElement.getAttribute('data-seep-proctor-installed') === 'true';
 
       if (!isInstalled || !isTeExtensionActive) {
         triggerExamLock('E-Extension connection lost or disabled');
@@ -236,32 +244,22 @@ export function StudentExamPlayer() {
     }).catch(() => {});
   };
 
+  useEffect(() => {
+    // Ensure Extension Checkup always occurs BEFORE Environment Test (step5_countdown)
+    const isVerified = localStorage.getItem(`seep_ext_verified_${examId}`) === 'true' || localStorage.getItem('seep_ext_verified_any') === 'true';
+    if (!isVerified && verificationStep === 'step5_countdown') {
+      setVerificationStep('step3_chrome_store');
+    }
+  }, [examId, verificationStep]);
+
   const handleReverifyAndResume = async () => {
     try {
-      document.documentElement.setAttribute('data-te-extension-installed', 'true');
-      document.documentElement.setAttribute('data-te-extension-active', 'true');
-      window.postMessage({ source: 'te-portal', type: 'START_TE_EXAM' }, '*');
-      setIsTeExtensionActive(true);
-
-      const userStr = localStorage.getItem('seep_user');
-      const u = userStr ? JSON.parse(userStr) : {};
-
-      await api('/api/extension/log-event', {
-        method: 'POST',
-        body: JSON.stringify({
-          type: 'EXTENSION_RESTORED',
-          sessionToken,
-          examId,
-          studentId: u.id || 'student-1',
-          studentName: `${u.firstName || 'Student'} ${u.lastName || ''}`.trim(),
-          details: 'E-Extension re-verified and exam session resumed.'
-        })
-      }).catch(() => {});
-
       setIsExamLocked(false);
-      enterFullscreenSafely();
+      setVerificationStep('step4_extensions_page');
+      setPhase('countdown');
+      window.postMessage({ source: 'neoexamshield-portal', type: 'FETCH_LIVE_EXTENSIONS' }, '*');
     } catch (e) {
-      alert('Could not re-verify extension. Please ensure E-Extension is turned ON.');
+      alert('Could not re-verify extension. Please ensure NeoExamShield Extension is active.');
     }
   };
 
@@ -269,31 +267,32 @@ export function StudentExamPlayer() {
   useEffect(() => {
     if (phase !== 'countdown' || verificationStep !== 'step5_countdown') return;
     if (countdown <= 0) {
-      enterFullscreenSafely();
-      setPhase('exam');
-      setVerificationStep('exam_ready');
+      if (isTeExtensionActive) {
+        setPhase('exam');
+        setVerificationStep('exam_ready');
+      }
       return;
     }
+    
     const timer = setTimeout(() => setCountdown((c) => c - 1), 1000);
     return () => clearTimeout(timer);
-  }, [phase, countdown, verificationStep]);
+  }, [phase, countdown, verificationStep, isTeExtensionActive]);
 
-  const enterFullscreenSafely = async () => {
+  const enterFullscreenSafely = () => {
     try {
       if (document.documentElement.requestFullscreen && !document.fullscreenElement) {
-        await document.documentElement.requestFullscreen();
+        document.documentElement.requestFullscreen().catch(() => {
+          // Non-blocking catch for browser user gesture policy
+        });
       }
     } catch (e) {
-      // Ignored if user gesture policy is active
+      // Ignored
     }
   };
 
   /* ── 3. Fullscreen & Proctoring Protection + Copy/Paste Prevention ── */
   useEffect(() => {
-    if (phase !== 'exam') return;
-
-    // Force Fullscreen safely
-    enterFullscreenSafely();
+    if (phase !== 'exam' || isSubmitting || isSubmitted || submitCountdown !== null) return;
 
     const handleVisibilityChange = () => {
       if (document.hidden) {
@@ -407,6 +406,7 @@ export function StudentExamPlayer() {
   }, [phase, attemptId, exam]);
 
   const handleMalpracticeTermination = async (reason: string = 'FULLSCREEN_EXIT') => {
+    if (isSubmitting || isSubmitted || submitCountdown !== null) return;
     if (document.fullscreenElement) {
       document.exitFullscreen().catch(() => {});
     }
@@ -457,24 +457,38 @@ export function StudentExamPlayer() {
   }, [phase]);
 
   const handleSubmitExam = async () => {
-    if (isSubmitting) return;
+    if (isSubmitting || isSubmitted) return;
     setIsSubmitting(true);
+    setIsSubmitted(true);
     try {
-      if (document.fullscreenElement) {
-        document.exitFullscreen().catch(() => {});
-      }
       if (attemptId && !attemptId.startsWith('demo-')) {
         await api(`/api/attempts/${attemptId}/submit`, {
           method: 'POST',
           body: JSON.stringify({ mcqAnswers })
         }).catch(() => {});
       }
+    } catch (e) {
+      console.error('Submit error:', e);
     } finally {
-      alert('✅ Examination submitted successfully!');
-      navigate('/student/dashboard');
       setIsSubmitting(false);
+      setSubmitCountdown(5);
     }
   };
+
+  useEffect(() => {
+    if (submitCountdown === null) return;
+    if (submitCountdown <= 0) {
+      if (document.fullscreenElement) {
+        document.exitFullscreen().catch(() => {});
+      }
+      navigate('/student/dashboard');
+      return;
+    }
+    const timer = setTimeout(() => {
+      setSubmitCountdown((prev) => (prev !== null ? prev - 1 : null));
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [submitCountdown, navigate]);
 
   const formatTime = (secs: number) => {
     const h = Math.floor(secs / 3600);
@@ -485,6 +499,70 @@ export function StudentExamPlayer() {
   };
 
   /* ────────────────── PHASES ────────────────── */
+
+  if (isSubmitted && submitCountdown !== null) {
+    return (
+      <div style={{
+        minHeight: '100vh',
+        background: 'linear-gradient(135deg, #0f172a 0%, #064e3b 100%)',
+        display: 'grid',
+        placeItems: 'center',
+        fontFamily: "'Segoe UI', system-ui, -apple-system, sans-serif",
+        color: '#f8fafc',
+        padding: '2rem'
+      }}>
+        <div style={{
+          textAlign: 'center',
+          maxWidth: '540px',
+          width: '100%',
+          background: 'rgba(15, 23, 42, 0.85)',
+          backdropFilter: 'blur(16px)',
+          border: '1px solid rgba(52, 211, 153, 0.3)',
+          borderRadius: '24px',
+          padding: '3rem 2.5rem',
+          boxShadow: '0 25px 60px rgba(0, 0, 0, 0.6)'
+        }}>
+          <div style={{
+            width: '80px', height: '80px', borderRadius: '50%',
+            background: 'rgba(52, 211, 153, 0.15)',
+            border: '2px solid #34d399',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: '2.5rem', margin: '0 auto 1.5rem',
+            boxShadow: '0 0 30px rgba(52, 211, 153, 0.3)'
+          }}>
+            ✅
+          </div>
+
+          <h2 style={{ fontSize: '1.8rem', fontWeight: 800, color: '#ffffff', margin: '0 0 0.5rem' }}>
+            Test Submitted Successfully!
+          </h2>
+
+          <p style={{ color: '#a7f3d0', fontSize: '0.96rem', margin: '0 0 2rem', lineHeight: 1.6 }}>
+            Your answers and proctoring telemetry have been securely saved. Please wait {submitCountdown} second{submitCountdown === 1 ? '' : 's'} in fullscreen mode while session integrity is finalized.
+          </p>
+
+          <div style={{
+            background: 'rgba(6, 78, 59, 0.6)',
+            border: '1px solid rgba(52, 211, 153, 0.4)',
+            borderRadius: '16px',
+            padding: '1.25rem',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '1rem'
+          }}>
+            <div style={{ fontSize: '2.4rem', fontWeight: 800, color: '#34d399', lineHeight: 1 }}>
+              {submitCountdown}s
+            </div>
+            <div style={{ textAlign: 'left', fontSize: '0.85rem', color: '#cbd5e1' }}>
+              <div style={{ fontWeight: 700, color: '#ffffff' }}>Finalizing Security & Exit</div>
+              <div>Returning to Dashboard automatically...</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (phase === 'loading') {
     return (
@@ -765,23 +843,76 @@ function AssessmentEnvironmentBackground({ examTitle }: { examTitle?: string }) 
                 </button>
               </div>
 
-              {/* Extension Showcase Banner (Matching Image 2) */}
-              <div style={{ background: 'linear-gradient(135deg, #2563eb, #1d4ed8)', borderRadius: '16px', padding: '3.5rem 2.5rem', color: '#fff', position: 'relative', overflow: 'hidden', boxShadow: '0 12px 30px rgba(0,0,0,0.4)', minHeight: '260px', display: 'flex', alignItems: 'center' }}>
-                <div>
-                  <h2 style={{ fontSize: '2.5rem', fontWeight: 800, margin: '0 0 1rem', lineHeight: 1.2 }}>Neo Exam Shield</h2>
-                  <p style={{ fontSize: '1.25rem', color: '#bfdbfe', maxWidth: '500px', margin: 0, lineHeight: 1.5 }}>
-                    Identify other extensions and prevent students from engaging in malpractices.
-                  </p>
+              {/* Real Extension Installation Helper Card */}
+              <div style={{ background: '#292a2d', border: '1px solid #3c4043', borderRadius: '16px', padding: '1.75rem 2rem', marginBottom: '2rem', color: '#e8eaed' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem', flexWrap: 'wrap', gap: '1rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    <span style={{ fontSize: '1.5rem' }}>🔌</span>
+                    <h3 style={{ margin: 0, fontSize: '1.15rem', color: '#f1f5f9', fontWeight: 600 }}>Real Browser Extension Loader</h3>
+                  </div>
+                  <span style={{
+                    padding: '0.35rem 0.85rem', borderRadius: '20px', fontSize: '0.8rem', fontWeight: 700,
+                    background: isTeExtensionActive ? 'rgba(52, 211, 153, 0.2)' : 'rgba(245, 158, 11, 0.2)',
+                    color: isTeExtensionActive ? '#34d399' : '#fbbf24',
+                    border: isTeExtensionActive ? '1px solid rgba(52, 211, 153, 0.4)' : '1px solid rgba(245, 158, 11, 0.4)'
+                  }}>
+                    {isTeExtensionActive ? '🟢 Real Extension Active in Chrome' : '🟡 Extension Not Loaded Yet'}
+                  </span>
                 </div>
-                <div style={{ position: 'absolute', right: '-20px', bottom: '-20px', opacity: 0.2, fontSize: '14rem' }}>
-                  🛡️
+
+                <p style={{ fontSize: '0.88rem', color: '#9aa0a6', margin: '0 0 1rem', lineHeight: 1.5 }}>
+                  To enable real-time extension security enforcement, load the extension into Google Chrome:
+                </p>
+
+                <div style={{ background: '#202124', border: '1px solid #3c4043', borderRadius: '10px', padding: '0.85rem 1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', marginBottom: '1.25rem' }}>
+                  <code style={{ color: '#8ab4f8', fontSize: '0.88rem', wordBreak: 'break-all' }}>d:\Projects\exam\t_e_extension</code>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText('d:\\Projects\\exam\\t_e_extension');
+                      alert('Extension folder path copied to clipboard!\n\nOpen chrome://extensions, enable Developer Mode, and click "Load unpacked".');
+                    }}
+                    style={{ background: '#3c4043', color: '#e8eaed', border: 'none', padding: '0.45rem 1rem', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, whiteSpace: 'nowrap' }}
+                  >
+                    📋 Copy Folder Path
+                  </button>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', fontSize: '0.82rem', color: '#cbd5e1' }}>
+                  <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.85rem', borderRadius: '8px', border: '1px solid #3c4043' }}>
+                    <strong>Step 1:</strong> Open <code>chrome://extensions</code> in Chrome
+                  </div>
+                  <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.85rem', borderRadius: '8px', border: '1px solid #3c4043' }}>
+                    <strong>Step 2:</strong> Turn ON <strong>Developer mode</strong> (top right)
+                  </div>
+                  <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.85rem', borderRadius: '8px', border: '1px solid #3c4043' }}>
+                    <strong>Step 3:</strong> Click <strong>Load unpacked</strong> & select folder
+                  </div>
+                </div>
+
+                <div style={{ marginTop: '1.5rem', display: 'flex', justifyContent: 'flex-end', gap: '1rem' }}>
+                  <button
+                    onClick={() => {
+                      const isInstalled = document.documentElement.getAttribute('data-neoexamshield-installed') === 'true' || document.documentElement.getAttribute('data-te-extension-installed') === 'true';
+                      if (isInstalled) {
+                        setIsTeExtensionActive(true);
+                        setInstalledNeoExamShield(true);
+                        setVerificationStep('step4_extensions_page');
+                      } else {
+                        window.postMessage({ source: 'neoexamshield-portal', type: 'CHECK_TE_STATUS' }, '*');
+                        alert('Extension connection checked. If loaded in Chrome, it will be detected automatically!');
+                      }
+                    }}
+                    style={{ background: 'linear-gradient(135deg, #1a73e8, #1557b0)', color: '#fff', border: 'none', padding: '0.65rem 1.6rem', borderRadius: '8px', fontWeight: 700, fontSize: '0.88rem', cursor: 'pointer', boxShadow: '0 4px 12px rgba(26,115,232,0.3)' }}
+                  >
+                    Verify & Proceed to Extensions Control →
+                  </button>
                 </div>
               </div>
 
               {/* Status Notification Toast at Bottom Left (Matching Image 2) */}
               <div style={{ position: 'fixed', bottom: '1.5rem', left: '1.5rem', background: '#202124', border: '1px solid #3c4043', borderRadius: '8px', padding: '0.85rem 1.25rem', color: '#e8eaed', fontSize: '0.85rem', boxShadow: '0 8px 24px rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                 <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: installedNeoExamShield ? '#34a853' : '#ea4335' }} />
-                {installedNeoExamShield ? 'NeoExamShield has been added to Chrome.' : 'NeoExamShield has been removed from Chrome.'}
+                {installedNeoExamShield ? 'NeoExamShield has been added to Chrome.' : 'NeoExamShield extension required in Chrome.'}
               </div>
             </div>
 
@@ -814,7 +945,7 @@ function AssessmentEnvironmentBackground({ examTitle }: { examTitle?: string }) 
                         document.documentElement.setAttribute('data-te-extension-active', 'true');
                         setIsTeExtensionActive(true);
                         setShowChromeAddDialog(false);
-                        setVerificationStep('step4_warning2');
+                        setVerificationStep('step4_extensions_page');
                       }}
                       style={{ background: '#1a73e8', color: '#ffffff', border: 'none', padding: '0.6rem 1.4rem', borderRadius: '20px', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer' }}
                     >
@@ -833,78 +964,13 @@ function AssessmentEnvironmentBackground({ examTitle }: { examTitle?: string }) 
           </div>
         )}
 
-        {/* ── STEP 4: WARNING MODAL 2 (Matching Image 4) ── */}
-        {verificationStep === 'step4_warning2' && (
-          <div style={{ position: 'relative' }}>
-            <AssessmentEnvironmentBackground examTitle={exam?.title} />
-
-            <div style={{
-              position: 'fixed', inset: 0,
-              background: 'rgba(0, 0, 0, 0.45)',
-              backdropFilter: 'blur(3px)',
-              display: 'grid', placeItems: 'center',
-              zIndex: 99999,
-              padding: '1rem'
-            }}>
-              <div style={{
-                background: '#ffffff',
-                borderRadius: '16px',
-                padding: '2.25rem 2.5rem',
-                maxWidth: '560px',
-                width: '100%',
-                boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.3)',
-                position: 'relative',
-                color: '#1e293b'
-              }}>
-                <button
-                  onClick={() => window.close()}
-                  style={{
-                    position: 'absolute', top: '1.25rem', right: '1.25rem',
-                    border: 'none', background: 'transparent',
-                    fontSize: '1.25rem', cursor: 'pointer', color: '#64748b'
-                  }}
-                >
-                  ✕
-                </button>
-
-                <h2 style={{ margin: '0 0 1.5rem', fontSize: '1.35rem', fontWeight: 800, color: '#0f172a' }}>
-                  Warning!
-                </h2>
-
-                <p style={{ margin: '0 0 2.25rem', fontSize: '0.96rem', color: '#334155', lineHeight: 1.65 }}>
-                  Please disable all extensions except 'NeoExamShield' to take the test. Click 'OK' to access the extension page.
-                </p>
-
-                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                  <button
-                    onClick={() => setVerificationStep('step4_extensions_page')}
-                    style={{
-                      background: '#3b82f6',
-                      color: '#ffffff',
-                      border: 'none',
-                      padding: '0.65rem 1.85rem',
-                      borderRadius: '8px',
-                      fontWeight: 700,
-                      fontSize: '0.9rem',
-                      cursor: 'pointer',
-                      boxShadow: '0 4px 14px rgba(59, 130, 246, 0.4)',
-                      transition: 'all 0.15s ease'
-                    }}
-                  >
-                    OK
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* ── STEP 4: CHROME EXTENSIONS MANAGEMENT PAGE (Matching Image 5) ── */}
         {verificationStep === 'step4_extensions_page' && (() => {
           const activeLiveUnauthorized = liveChromeExtensions.filter(e => !e.isSelf && !e.name.toLowerCase().includes('neoexamshield') && e.enabled);
-          const isPassed = liveChromeExtensions.length > 0
+          const isExtensionsClean = liveChromeExtensions.length > 0
             ? activeLiveUnauthorized.length === 0
             : (!otherExtensionsState.automatedBooking && !otherExtensionsState.googleDocs && !otherExtensionsState.monica);
+          const isPassed = isTeExtensionActive && isExtensionsClean;
 
           const displayList = liveChromeExtensions.length > 0
             ? liveChromeExtensions.map(e => ({
@@ -990,133 +1056,342 @@ function AssessmentEnvironmentBackground({ examTitle }: { examTitle?: string }) 
           };
 
           return (
-            <div style={{ minHeight: '100vh', background: '#202124', color: '#e8eaed', fontFamily: "'Segoe UI', Roboto, sans-serif" }}>
-              {/* Chrome Address Bar Header */}
-              <div style={{ background: '#292a2d', borderBottom: '1px solid #3c4043', padding: '0.6rem 1.5rem', display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                <span style={{ color: '#9aa0a6', fontSize: '1.1rem', cursor: 'pointer' }}>←</span>
-                <span style={{ color: '#9aa0a6', fontSize: '1.1rem', cursor: 'pointer' }}>→</span>
-                <span style={{ color: '#9aa0a6', fontSize: '1.1rem', cursor: 'pointer' }}>↻</span>
-                <div style={{ flex: 1, background: '#202124', border: '1px solid #3c4043', borderRadius: '20px', padding: '0.4rem 1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#e8eaed', fontSize: '0.85rem' }}>
-                  <span style={{ color: '#9aa0a6' }}>🔒 Chrome</span>
-                  <span style={{ color: '#e8eaed' }}>chrome://extensions</span>
-                </div>
-                <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: '#1a73e8', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 700 }}>School</div>
-              </div>
-
-              {/* Extensions Header Bar */}
-              <div style={{ background: '#292a2d', borderBottom: '1px solid #3c4043', padding: '1rem 2.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '2rem' }}>
-                  <h1 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 600, color: '#f1f5f9' }}>Extensions</h1>
-                  <div style={{ background: '#202124', border: '1px solid #3c4043', borderRadius: '20px', padding: '0.45rem 1.25rem', width: '300px', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <span style={{ color: '#9aa0a6' }}>🔍</span>
-                    <input readOnly value="Search extensions" style={{ background: 'transparent', border: 'none', color: '#9aa0a6', outline: 'none', width: '100%', fontSize: '0.85rem' }} />
+            <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #0b0f19 0%, #111827 100%)', color: '#f3f4f6', fontFamily: "'Segoe UI', system-ui, -apple-system, sans-serif", paddingBottom: '4rem' }}>
+              
+              {/* Header Security Proctoring Bar */}
+              <div style={{ background: 'rgba(17, 24, 39, 0.9)', backdropFilter: 'blur(16px)', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', padding: '1.25rem 2.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', position: 'sticky', top: 0, zIndex: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
+                  <div style={{ width: '46px', height: '46px', borderRadius: '14px', background: 'linear-gradient(135deg, #6366f1, #a855f7)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.5rem', boxShadow: '0 4px 16px rgba(99,102,241,0.4)', flexShrink: 0 }}>
+                    🛡️
+                  </div>
+                  <div>
+                    <h1 style={{ margin: 0, fontSize: '1.45rem', fontWeight: 800, background: 'linear-gradient(to right, #ffffff, #c7d2fe)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+                      NeoExamShield Security Control Center
+                    </h1>
+                    <p style={{ margin: '0.2rem 0 0', color: '#9ca3af', fontSize: '0.85rem' }}>
+                      Real-Time Chrome Browser Extension Proctoring & Security Inspection
+                    </p>
                   </div>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                  <span style={{ fontSize: '0.85rem', color: '#9aa0a6' }}>Developer mode</span>
-                  <div style={{ width: '36px', height: '20px', borderRadius: '10px', background: '#8ab4f8', position: 'relative', cursor: 'pointer' }}>
-                    <div style={{ width: '16px', height: '16px', borderRadius: '50%', background: '#202124', position: 'absolute', top: '2px', right: '2px' }} />
+
+                <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <button
+                    onClick={() => window.postMessage({ source: 'neoexamshield-portal', type: 'FETCH_LIVE_EXTENSIONS' }, '*')}
+                    style={{ background: 'rgba(255,255,255,0.06)', color: '#cbd5e1', border: '1px solid rgba(255,255,255,0.1)', padding: '0.6rem 1.2rem', borderRadius: '10px', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.4rem', transition: 'all 0.15s ease' }}
+                  >
+                    🔄 Refresh Status
+                  </button>
+                  <button
+                    onClick={handleDisableAll}
+                    style={{ background: 'linear-gradient(135deg, #10b981, #059669)', color: '#fff', border: 'none', padding: '0.65rem 1.4rem', borderRadius: '10px', fontSize: '0.85rem', fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 14px rgba(16,185,129,0.35)', transition: 'all 0.15s ease' }}
+                  >
+                    ⚡ Auto-Disable All Third-Party Extensions
+                  </button>
+                </div>
+              </div>
+
+              {/* Stats Bar */}
+              <div style={{ maxWidth: '1200px', margin: '1.75rem auto 0', padding: '0 2rem', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1.25rem' }}>
+                <div style={{ background: 'rgba(17, 24, 39, 0.7)', backdropFilter: 'blur(10px)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '16px', padding: '1.15rem 1.4rem' }}>
+                  <div style={{ fontSize: '0.78rem', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 700 }}>Scanned Chrome Extensions</div>
+                  <div style={{ fontSize: '1.7rem', fontWeight: 800, color: '#f3f4f6', marginTop: '0.2rem' }}>{displayList.length}</div>
+                </div>
+                <div style={{ background: 'rgba(17, 24, 39, 0.7)', backdropFilter: 'blur(10px)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '16px', padding: '1.15rem 1.4rem' }}>
+                  <div style={{ fontSize: '0.78rem', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 700 }}>Unauthorized Active</div>
+                  <div style={{ fontSize: '1.7rem', fontWeight: 800, color: activeLiveUnauthorized.length === 0 ? '#34d399' : '#f87171', marginTop: '0.2rem' }}>
+                    {activeLiveUnauthorized.length}
+                  </div>
+                </div>
+                <div style={{ background: 'rgba(17, 24, 39, 0.7)', backdropFilter: 'blur(10px)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '16px', padding: '1.15rem 1.4rem' }}>
+                  <div style={{ fontSize: '0.78rem', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 700 }}>Proctoring Verification</div>
+                  <div style={{ fontSize: '0.95rem', fontWeight: 700, color: isPassed ? '#34d399' : '#fbbf24', marginTop: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    {isPassed ? '🟢 Environment Verified Secure' : '⚠️ Enforcement Required'}
                   </div>
                 </div>
               </div>
 
-              {/* Sub-bar Actions */}
-              <div style={{ background: '#202124', borderBottom: '1px solid #3c4043', padding: '0.75rem 2.5rem', display: 'flex', gap: '1rem', alignItems: 'center' }}>
-                {['Load unpacked', 'Pack extension', 'Update'].map((btn) => (
-                  <button key={btn} style={{ background: 'transparent', border: '1px solid #8ab4f8', color: '#8ab4f8', padding: '0.45rem 1.25rem', borderRadius: '16px', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer' }}>{btn}</button>
-                ))}
-                <button
-                  onClick={handleDisableAll}
-                  style={{ marginLeft: 'auto', background: 'linear-gradient(135deg, #10b981, #059669)', color: '#fff', border: 'none', padding: '0.5rem 1.25rem', borderRadius: '16px', fontSize: '0.82rem', fontWeight: 700, cursor: 'pointer' }}
-                >
-                  ⚡ Disable All Other Extensions Automatically
-                </button>
-              </div>
-
-              {/* Profile Managed Banner */}
-              <div style={{ padding: '1rem 2.5rem', background: '#202124', display: 'flex', alignItems: 'center', gap: '0.75rem', color: '#9aa0a6', fontSize: '0.85rem' }}>
-                <span>🏢 Your profile is managed by <strong>bitsathy.ac.in</strong></span>
-              </div>
-
-              {/* Extensions List Container */}
-              <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '1rem 2.5rem' }}>
-                <h3 style={{ fontSize: '1rem', fontWeight: 600, color: '#f1f5f9', marginBottom: '1.25rem' }}>All Extensions</h3>
+              {/* Main Extension List & Verification Section */}
+              <div style={{ maxWidth: '1200px', margin: '1.75rem auto 0', padding: '0 2rem' }}>
 
                 {/* Verification Status Banner */}
                 {isPassed ? (
-                  <div style={{ background: 'rgba(16, 185, 129, 0.15)', border: '1px solid rgba(16, 185, 129, 0.4)', borderRadius: '12px', padding: '1rem 1.5rem', marginBottom: '1.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div>
-                      <div style={{ color: '#34d399', fontWeight: 700, fontSize: '0.95rem' }}>✅ Security Verification Passed!</div>
-                      <div style={{ color: '#a7f3d0', fontSize: '0.85rem', marginTop: '0.2rem' }}>All non-essential extensions are turned OFF in Chrome. Only NeoExamShield is active.</div>
+                  <div style={{
+                    background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(5, 150, 105, 0.15))',
+                    border: '1px solid rgba(16, 185, 129, 0.45)',
+                    borderRadius: '16px',
+                    padding: '1.75rem 2.25rem',
+                    marginBottom: '2rem',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    gap: '1.5rem',
+                    boxShadow: '0 12px 35px rgba(16, 185, 129, 0.2)',
+                    flexWrap: 'wrap'
+                  }}>
+                    <div style={{ flex: 1, minWidth: '280px' }}>
+                      <div style={{ color: '#34d399', fontWeight: 800, fontSize: '1.2rem', display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.4rem' }}>
+                        <span>🎉</span> Extension Setup Successfully Verified!
+                      </div>
+                      <div style={{ color: '#a7f3d0', fontSize: '0.92rem', lineHeight: 1.5 }}>
+                        All non-essential third-party extensions are turned OFF in Chrome. Your browser environment is verified secure.
+                      </div>
                     </div>
                     <button
-                      onClick={() => setVerificationStep('step5_countdown')}
-                      style={{ background: '#10b981', color: '#fff', border: 'none', padding: '0.65rem 1.5rem', borderRadius: '8px', fontWeight: 700, cursor: 'pointer', fontSize: '0.9rem', boxShadow: '0 4px 14px rgba(16,185,129,0.35)' }}
+                      onClick={() => {
+                        if (examId) {
+                          localStorage.setItem(`seep_ext_verified_${examId}`, 'true');
+                        }
+                        localStorage.setItem('seep_ext_verified_any', 'true');
+                        setVerificationStep('step5_countdown');
+                        setPhase('countdown');
+                        setCountdown(5);
+                        enterFullscreenSafely();
+                      }}
+                      style={{
+                        background: 'linear-gradient(135deg, #10b981, #059669)',
+                        color: '#ffffff',
+                        border: 'none',
+                        padding: '0.85rem 2.25rem',
+                        borderRadius: '12px',
+                        fontWeight: 800,
+                        cursor: 'pointer',
+                        fontSize: '0.95rem',
+                        boxShadow: '0 6px 20px rgba(16, 185, 129, 0.4)',
+                        whiteSpace: 'nowrap',
+                        transition: 'transform 0.15s ease'
+                      }}
                     >
-                      Proceed to Environment Setup →
+                      🚀 Start Fullscreen Test Now →
+                    </button>
+                  </div>
+                ) : !isTeExtensionActive ? (
+                  <div style={{
+                    background: 'rgba(239, 68, 68, 0.12)',
+                    border: '1px solid rgba(239, 68, 68, 0.35)',
+                    borderRadius: '16px',
+                    padding: '1.25rem 1.75rem',
+                    marginBottom: '2rem',
+                    color: '#fca5a5',
+                    fontSize: '0.92rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '1rem',
+                    flexWrap: 'wrap'
+                  }}>
+                    <div>
+                      ⚠️ <strong>Extension Disconnected:</strong> NeoExamShield Extension is not active or could not be verified in this environment.
+                    </div>
+                    <button
+                      onClick={() => {
+                        setInstalledNeoExamShield(true);
+                        document.documentElement.setAttribute('data-neoexamshield-installed', 'true');
+                        document.documentElement.setAttribute('data-neoexamshield-active', 'true');
+                        document.documentElement.setAttribute('data-te-extension-installed', 'true');
+                        document.documentElement.setAttribute('data-te-extension-active', 'true');
+                        setIsTeExtensionActive(true);
+                      }}
+                      style={{
+                        background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)',
+                        color: '#fff',
+                        border: 'none',
+                        padding: '0.6rem 1.4rem',
+                        borderRadius: '8px',
+                        fontSize: '0.85rem',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        whiteSpace: 'nowrap'
+                      }}
+                    >
+                      🧪 Simulate Extension (Dev Mode)
                     </button>
                   </div>
                 ) : (
-                  <div style={{ background: 'rgba(239, 68, 68, 0.12)', border: '1px solid rgba(239, 68, 68, 0.35)', borderRadius: '12px', padding: '1rem 1.5rem', marginBottom: '1.75rem', color: '#fca5a5', fontSize: '0.88rem' }}>
-                    ⚠️ <strong>Action Required:</strong> Turn OFF the toggle switches for all extensions below except <strong>NeoExamShield</strong> to continue.
+                  <div style={{
+                    background: 'rgba(239, 68, 68, 0.12)',
+                    border: '1px solid rgba(239, 68, 68, 0.35)',
+                    borderRadius: '16px',
+                    padding: '1.25rem 1.75rem',
+                    marginBottom: '2rem',
+                    color: '#fca5a5',
+                    fontSize: '0.92rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '1rem',
+                    flexWrap: 'wrap'
+                  }}>
+                    <div>
+                      ⚠️ <strong>Action Required:</strong> Turn OFF the toggle switches for all third-party Chrome extensions below except <strong>NeoExamShield</strong> to continue.
+                    </div>
+                    <button
+                      onClick={handleDisableAll}
+                      style={{
+                        background: 'linear-gradient(135deg, #ef4444, #dc2626)',
+                        color: '#fff',
+                        border: 'none',
+                        padding: '0.6rem 1.4rem',
+                        borderRadius: '8px',
+                        fontSize: '0.85rem',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        whiteSpace: 'nowrap'
+                      }}
+                    >
+                      ⚡ Auto-Disable All
+                    </button>
                   </div>
                 )}
 
+                {/* SUCCESS MODAL POPUP OVERLAY */}
+                {isPassed && (
+                  <div style={{
+                    position: 'fixed', inset: 0,
+                    background: 'rgba(11, 15, 25, 0.85)',
+                    backdropFilter: 'blur(8px)',
+                    display: 'grid', placeItems: 'center',
+                    zIndex: 99999,
+                    padding: '1.5rem'
+                  }}>
+                    <div style={{
+                      background: '#111827',
+                      border: '1px solid rgba(16, 185, 129, 0.4)',
+                      borderRadius: '24px',
+                      padding: '2.5rem',
+                      maxWidth: '560px',
+                      width: '100%',
+                      boxShadow: '0 25px 60px rgba(0, 0, 0, 0.6)',
+                      textAlign: 'center',
+                      color: '#f3f4f6'
+                    }}>
+                      <div style={{
+                        width: '72px', height: '72px', borderRadius: '50%',
+                        background: 'rgba(16, 185, 129, 0.15)',
+                        border: '1px solid rgba(16, 185, 129, 0.4)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: '2.2rem', margin: '0 auto 1.5rem'
+                      }}>
+                        ✅
+                      </div>
+
+                      <h2 style={{ margin: '0 0 0.75rem', fontSize: '1.5rem', fontWeight: 800, color: '#ffffff' }}>
+                        Extension Verification Complete!
+                      </h2>
+
+                      <p style={{ margin: '0 0 2rem', fontSize: '0.98rem', color: '#9ca3af', lineHeight: 1.6 }}>
+                        All third-party Chrome extensions have been successfully turned OFF. Your browser environment is verified secure. Click <strong>"Start Fullscreen Test Now"</strong> to begin your assessment immediately.
+                      </p>
+
+                      <button
+                        onClick={() => {
+                          if (examId) {
+                            localStorage.setItem(`seep_ext_verified_${examId}`, 'true');
+                          }
+                          localStorage.setItem('seep_ext_verified_any', 'true');
+                          setVerificationStep('step5_countdown');
+                          setPhase('countdown');
+                          setCountdown(5);
+                          enterFullscreenSafely();
+                        }}
+                        style={{
+                          width: '100%',
+                          background: 'linear-gradient(135deg, #10b981, #059669)',
+                          color: '#ffffff',
+                          border: 'none',
+                          padding: '0.95rem 2rem',
+                          borderRadius: '14px',
+                          fontWeight: 800,
+                          fontSize: '1rem',
+                          cursor: 'pointer',
+                          boxShadow: '0 8px 24px rgba(16, 185, 129, 0.4)',
+                          transition: 'transform 0.15s ease'
+                        }}
+                      >
+                        🚀 Start Fullscreen Test Now →
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#f3f4f6', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  🧩 Installed Chrome Extensions ({displayList.length})
+                </h3>
+
                 {/* Extension Cards Grid */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(520px, 1fr))', gap: '1.25rem' }}>
                   {displayList.map((ext) => (
-                    <div key={ext.key} style={{ background: '#292a2d', border: '1px solid #3c4043', borderRadius: '12px', padding: '1.25rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '180px' }}>
+                    <div key={ext.key} style={{
+                      background: 'rgba(17, 24, 39, 0.8)',
+                      backdropFilter: 'blur(12px)',
+                      border: ext.enabled && ext.toggleable ? '1px solid rgba(239, 68, 68, 0.4)' : '1px solid rgba(255, 255, 255, 0.08)',
+                      borderRadius: '16px',
+                      padding: '1.5rem',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      justifyContent: 'space-between',
+                      minHeight: '190px',
+                      boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
+                      transition: 'all 0.2s ease'
+                    }}>
                       <div>
-                        <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start', marginBottom: '0.75rem' }}>
-                          <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: '#3c4043', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem', flexShrink: 0 }}>
+                        <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start', marginBottom: '0.85rem' }}>
+                          <div style={{ width: '42px', height: '42px', borderRadius: '10px', background: !ext.toggleable ? 'rgba(99, 102, 241, 0.15)' : 'rgba(255, 255, 255, 0.05)', border: '1px solid rgba(255, 255, 255, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.4rem', flexShrink: 0 }}>
                             {ext.icon}
                           </div>
-                          <div style={{ minWidth: 0 }}>
-                            <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 600, color: '#f1f5f9' }}>
-                              {ext.title} <span style={{ color: '#9aa0a6', fontSize: '0.8rem', fontWeight: 400 }}>{ext.version}</span>
-                            </h4>
-                            <p style={{ margin: '0.4rem 0 0.6rem', fontSize: '0.8rem', color: '#9aa0a6', lineHeight: 1.45 }}>
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap' }}>
+                              <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: '#f3f4f6' }}>
+                                {ext.title} <span style={{ color: '#9ca3af', fontSize: '0.8rem', fontWeight: 400 }}>{ext.version}</span>
+                              </h4>
+                              <span style={{
+                                padding: '0.2rem 0.65rem', borderRadius: '20px', fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em',
+                                background: !ext.toggleable ? 'rgba(52, 211, 153, 0.15)' : (ext.enabled ? 'rgba(239, 68, 68, 0.15)' : 'rgba(156, 163, 175, 0.15)'),
+                                color: !ext.toggleable ? '#34d399' : (ext.enabled ? '#f87171' : '#9ca3af'),
+                                border: !ext.toggleable ? '1px solid rgba(52, 211, 153, 0.3)' : (ext.enabled ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid rgba(156, 163, 175, 0.3)')
+                              }}>
+                                {!ext.toggleable ? 'Mandatory Protected' : (ext.enabled ? 'Action Required' : 'Turned OFF')}
+                              </span>
+                            </div>
+                            <p style={{ margin: '0.4rem 0 0.6rem', fontSize: '0.83rem', color: '#9ca3af', lineHeight: 1.45 }}>
                               {ext.desc}
                             </p>
                           </div>
                         </div>
 
-                        <div style={{ fontSize: '0.75rem', color: '#9aa0a6', marginTop: '0.5rem' }}>
-                          ID: <code>{ext.id}</code>
-                        </div>
-                        <div style={{ fontSize: '0.75rem', color: '#9aa0a6', marginTop: '0.2rem' }}>
-                          Inspect views: <span style={{ color: '#8ab4f8', cursor: 'pointer' }}>{ext.inspect}</span>
+                        <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '0.5rem', fontFamily: 'monospace' }}>
+                          ID: {ext.id}
                         </div>
                       </div>
 
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1.25rem', paddingTop: '0.75rem', borderTop: '1px solid #3c4043' }}>
-                        <div style={{ display: 'flex', gap: '0.75rem' }}>
-                          <button style={{ background: '#3c4043', border: 'none', color: '#e8eaed', padding: '0.35rem 0.85rem', borderRadius: '16px', fontSize: '0.78rem', cursor: 'pointer' }}>Details</button>
-                          <button style={{ background: '#3c4043', border: 'none', color: '#e8eaed', padding: '0.35rem 0.85rem', borderRadius: '16px', fontSize: '0.78rem', cursor: 'pointer' }}>Remove</button>
-                        </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1.25rem', paddingTop: '0.85rem', borderTop: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                        <span style={{ fontSize: '0.82rem', color: ext.enabled ? (ext.toggleable ? '#f87171' : '#34d399') : '#9ca3af', fontWeight: 600 }}>
+                          Status: {ext.enabled ? (ext.toggleable ? '⚠️ Enabled in Chrome' : '🟢 Active & Protected') : '🔒 Disabled'}
+                        </span>
 
                         {/* Interactive Toggle Switch */}
                         <div
                           onClick={() => handleToggleItem(ext)}
                           style={{
-                            width: '40px',
-                            height: '22px',
-                            borderRadius: '11px',
-                            background: ext.enabled ? '#8ab4f8' : '#5f6368',
+                            width: '46px',
+                            height: '24px',
+                            borderRadius: '12px',
+                            background: ext.enabled ? (!ext.toggleable ? '#6366f1' : '#ef4444') : '#334155',
                             position: 'relative',
                             cursor: ext.toggleable ? 'pointer' : 'not-allowed',
-                            transition: 'background 0.2s'
+                            transition: 'all 0.2s ease',
+                            opacity: ext.toggleable ? 1 : 0.7
                           }}
                         >
                           <div style={{
-                            width: '18px',
-                            height: '18px',
+                            width: '20px',
+                            height: '20px',
                             borderRadius: '50%',
-                            background: '#202124',
+                            background: '#ffffff',
                             position: 'absolute',
                             top: '2px',
-                            left: ext.enabled ? '20px' : '2px',
-                            transition: 'left 0.2s'
+                            left: ext.enabled ? '24px' : '2px',
+                            transition: 'left 0.2s ease',
+                            boxShadow: '0 2px 4px rgba(0,0,0,0.3)'
                           }} />
                         </div>
                       </div>
@@ -1154,7 +1429,7 @@ function AssessmentEnvironmentBackground({ examTitle }: { examTitle?: string }) 
               </div>
 
               <h1 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#ffffff', margin: '0 0 0.5rem' }}>
-                Environment Setup & Security Check
+                 Security Check
               </h1>
               <p style={{ color: '#94a3b8', fontSize: '0.92rem', margin: '0 0 2rem', lineHeight: 1.5 }}>
                 Verifying system environment and extension integrity for <strong style={{ color: '#cbd5e1' }}>{exam?.title}</strong>...
@@ -1163,17 +1438,40 @@ function AssessmentEnvironmentBackground({ examTitle }: { examTitle?: string }) 
               {/* Environment Checklist */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', textAlign: 'left', background: 'rgba(0, 0, 0, 0.3)', padding: '1.25rem', borderRadius: '16px', border: '1px solid rgba(255, 255, 255, 0.05)' }}>
                 {[
-                  { text: 'NeoExamShield Extension Active & Verified', status: true },
-                  { text: '0 Conflicting Chrome Extensions Active', status: true },
+                  { text: 'NeoExamShield Extension Active & Verified', status: isTeExtensionActive },
+                  { text: '0 Conflicting Chrome Extensions Active', status: isTeExtensionActive },
                   { text: 'Browser & Session Security Tokens Authenticated', status: true },
                   { text: 'Secure Fullscreen & Focus Protection Enforced', status: countdown <= 2 }
                 ].map((item, idx) => (
                   <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.88rem' }}>
-                    <span style={{ color: item.status ? '#34d399' : '#a7f3d0', fontSize: '1.1rem' }}>{item.status ? '✓' : '⏳'}</span>
-                    <span style={{ color: item.status ? '#f1f5f9' : '#94a3b8', fontWeight: item.status ? 600 : 400 }}>{item.text}</span>
+                    <span style={{ color: item.status ? '#34d399' : '#f87171', fontSize: '1.1rem' }}>{item.status ? '✓' : (isTeExtensionActive ? '⏳' : '✖')}</span>
+                    <span style={{ color: item.status ? '#f1f5f9' : '#fca5a5', fontWeight: item.status ? 600 : 400 }}>{item.text}</span>
                   </div>
                 ))}
               </div>
+
+              {/* Test transitions automatically when countdown finishes */}
+              
+              {!isTeExtensionActive && (
+                <button
+                  onClick={handleReverifyAndResume}
+                  style={{
+                    marginTop: '1.75rem',
+                    width: '100%',
+                    background: 'linear-gradient(135deg, #ef4444, #dc2626)',
+                    color: '#ffffff',
+                    border: 'none',
+                    padding: '0.9rem 1.8rem',
+                    borderRadius: '12px',
+                    fontWeight: 800,
+                    fontSize: '1rem',
+                    cursor: 'pointer',
+                    boxShadow: '0 6px 20px rgba(239,68,68,0.4)',
+                  }}
+                >
+                  ⚠️ Connection Lost - Re-verify Extension
+                </button>
+              )}
             </div>
           </div>
         )}

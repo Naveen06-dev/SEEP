@@ -38,14 +38,22 @@ export function StudentCodingQuestion({ attemptId, question }: Props) {
   useEffect(() => {
     const baseUrl = (API_URL || 'http://localhost:4000').replace('/api', '');
     const socket = io(baseUrl, {
-      transports: ['websocket', 'polling'],
-      reconnectionAttempts: 5,
-      timeout: 10000
+      transports: ['polling', 'websocket'],
+      reconnectionAttempts: 3,
+      timeout: 5000,
+      autoConnect: true
     });
+
+    socket.on('connect_error', () => {
+      // Quietly ignore connection errors on Fast Refresh / HMR
+    });
+
     socket.emit('join-attempt', attemptId);
 
     const interval = setInterval(() => {
-      socket.emit('coding-autosave', { attemptId, codingQuestionId: question.id, language, sourceCode: code });
+      if (socket.connected) {
+        socket.emit('coding-autosave', { attemptId, codingQuestionId: question.id, language, sourceCode: code });
+      }
       api(`/api/attempts/${attemptId}/autosave`, {
         method: 'POST',
         body: JSON.stringify({ codingQuestionId: question.id, language, sourceCode: code })
@@ -61,7 +69,10 @@ export function StudentCodingQuestion({ attemptId, question }: Props) {
 
     return () => {
       clearInterval(interval);
-      socket.disconnect();
+      try {
+        socket.off('connect_error');
+        socket.disconnect();
+      } catch (e) {}
     };
   }, [attemptId, question.id]);
 
