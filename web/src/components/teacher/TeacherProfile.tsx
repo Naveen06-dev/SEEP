@@ -1,13 +1,15 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../lib/api';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui/Card';
+import { Badge } from '../ui/Badge';
+import { Button } from '../ui/Button';
+import { Users, Mail, Briefcase, Building2, CreditCard, Clock } from 'lucide-react';
 
 export function TeacherProfile() {
   const [profile, setProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    loadProfile();
-  }, []);
+  useEffect(() => { loadProfile(); }, []);
 
   const loadProfile = async () => {
     try {
@@ -22,101 +24,63 @@ export function TeacherProfile() {
 
   if (loading) {
     return (
-      <div className="card" style={{ padding: '2rem', textAlign: 'center' }}>
-        <p style={{ color: '#9ca3af' }}>Loading teacher profile details...</p>
+      <div className="p-6 max-w-3xl mx-auto">
+        <div className="animate-pulse space-y-4">
+          <div className="h-8 bg-slate-200 rounded w-48" />
+          <div className="h-48 bg-slate-100 rounded-xl" />
+        </div>
       </div>
     );
   }
 
+  const fields = [
+    { label: 'Full Name', value: profile?.name, icon: Users },
+    { label: 'Department', value: profile?.department, icon: Building2 },
+    { label: 'Subject Specialization', value: profile?.subject, icon: Briefcase },
+    { label: 'Email Address', value: profile?.email, icon: Mail },
+    { label: 'Employee / Faculty ID', value: profile?.employeeId, icon: CreditCard },
+    { label: 'Last Login', value: profile?.lastLogin ? new Date(profile.lastLogin).toLocaleString() : '—', icon: Clock },
+  ];
+
   return (
-    <div style={{ maxWidth: '800px' }}>
-      <div style={{ marginBottom: '1.5rem' }}>
-        <h2 style={{ fontSize: '1.5rem', fontWeight: 700, margin: '0 0 0.5rem 0' }}>Teacher Details</h2>
-        <p style={{ color: '#9ca3af', margin: 0, fontSize: '0.9rem' }}>
-          Authenticated Faculty Account Profile & Institutional Record
-        </p>
+    <div className="p-6 max-w-3xl mx-auto space-y-6">
+      {/* Page Header */}
+      <div>
+        <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Instructor Profile</h1>
+        <p className="text-slate-400 text-sm mt-1">Authenticated Faculty Account & Institutional Record</p>
       </div>
 
-      <div
-        style={{
-          background: 'rgba(17, 24, 39, 0.7)',
-          backdropFilter: 'blur(16px)',
-          border: '1px solid rgba(255, 255, 255, 0.08)',
-          borderRadius: '12px',
-          padding: '2rem'
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', marginBottom: '2rem', paddingBottom: '1.5rem', borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}>
-          <div
-            style={{
-              width: '72px',
-              height: '72px',
-              borderRadius: '50%',
-              background: 'linear-gradient(135deg, #6366f1, #a855f7)',
-              display: 'grid',
-              placeItems: 'center',
-              fontSize: '2rem',
-              fontWeight: 800,
-              color: '#fff',
-              boxShadow: '0 8px 16px rgba(99, 102, 241, 0.3)'
-            }}
-          >
-            {profile?.name ? profile.name.charAt(0) : 'T'}
-          </div>
-          <div>
-            <h3 style={{ fontSize: '1.25rem', fontWeight: 700, margin: '0 0 0.25rem 0' }}>{profile?.name}</h3>
-            <span style={{ background: 'rgba(99, 102, 241, 0.2)', color: '#818cf8', border: '1px solid rgba(99, 102, 241, 0.3)', padding: '0.2rem 0.6rem', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 600 }}>
-              Faculty / Examiner
-            </span>
-          </div>
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1.5rem' }}>
-          <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '1rem', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.05)' }}>
-            <div style={{ fontSize: '0.75rem', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.4rem' }}>
-              Teacher Name
+      <Card>
+        <CardContent className="p-6">
+          {/* Avatar + Name Header */}
+          <div className="flex items-center gap-4 pb-5 mb-5 border-b border-border">
+            <div className="w-16 h-16 rounded-full bg-primary/10 text-primary flex items-center justify-center text-2xl font-bold shrink-0">
+              {profile?.name ? profile.name.charAt(0).toUpperCase() : 'T'}
             </div>
-            <div style={{ fontSize: '1rem', fontWeight: 600, color: '#f3f4f6' }}>{profile?.name}</div>
+            <div>
+              <h2 className="text-xl font-bold text-slate-900">{profile?.name || 'Instructor'}</h2>
+              <Badge variant="outline" className="mt-1 bg-primary/5 text-primary border-primary/20">
+                Faculty / Examiner
+              </Badge>
+            </div>
           </div>
 
-          <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '1rem', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.05)' }}>
-            <div style={{ fontSize: '0.75rem', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.4rem' }}>
-              Department
-            </div>
-            <div style={{ fontSize: '1rem', fontWeight: 600, color: '#f3f4f6' }}>{profile?.department}</div>
+          {/* Profile Fields Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {fields.map((field) => (
+              <div key={field.label} className="bg-slate-50 rounded-lg border border-border p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <field.icon className="h-3.5 w-3.5 text-slate-400" />
+                  <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">{field.label}</span>
+                </div>
+                <div className="text-sm font-semibold text-slate-900">
+                  {field.value || '—'}
+                </div>
+              </div>
+            ))}
           </div>
-
-          <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '1rem', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.05)' }}>
-            <div style={{ fontSize: '0.75rem', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.4rem' }}>
-              Subject Specialization
-            </div>
-            <div style={{ fontSize: '1rem', fontWeight: 600, color: '#f3f4f6' }}>{profile?.subject}</div>
-          </div>
-
-          <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '1rem', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.05)' }}>
-            <div style={{ fontSize: '0.75rem', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.4rem' }}>
-              Email Address
-            </div>
-            <div style={{ fontSize: '1rem', fontWeight: 600, color: '#818cf8' }}>{profile?.email}</div>
-          </div>
-
-          <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '1rem', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.05)' }}>
-            <div style={{ fontSize: '0.75rem', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.4rem' }}>
-              Employee / Faculty ID
-            </div>
-            <div style={{ fontSize: '1rem', fontWeight: 600, color: '#34d399' }}>{profile?.employeeId}</div>
-          </div>
-
-          <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '1rem', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.05)' }}>
-            <div style={{ fontSize: '0.75rem', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.4rem' }}>
-              Last Login
-            </div>
-            <div style={{ fontSize: '0.95rem', fontWeight: 500, color: '#f3f4f6' }}>
-              {new Date(profile?.lastLogin).toLocaleString()}
-            </div>
-          </div>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

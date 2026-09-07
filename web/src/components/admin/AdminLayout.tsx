@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
-import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
+import { NavLink, Outlet, useNavigate, useLocation, Link } from 'react-router-dom';
+import { LayoutDashboard, Users, BookOpen, CheckCircle, BarChart3, Inbox, ShieldAlert, LogOut, Bell, Search, Menu, Code2 } from 'lucide-react';
+import { Button } from '../ui/Button';
 
 export function AdminLayout() {
   const [adminUser, setAdminUser] = useState<any>(null);
@@ -17,151 +19,106 @@ export function AdminLayout() {
   };
 
   const navItems = [
-    { key: 'DEPARTMENTS', path: '/admin/dashboard?tab=DEPARTMENTS', label: '1. Department Details', icon: '🏢' },
-    { key: 'TEACHERS', path: '/admin/dashboard?tab=TEACHERS', label: '2. Teacher Details', icon: '👨‍🏫' },
-    { key: 'STUDENTS', path: '/admin/dashboard?tab=STUDENTS', label: '3. Student Details', icon: '🎓' },
-    { key: 'APPROVALS', path: '/admin/dashboard?tab=APPROVALS', label: '4. Test Approvals', icon: '📋' },
-    { key: 'RESULTS', path: '/admin/dashboard?tab=RESULTS', label: '5. Student Results', icon: '📊' },
-    { key: 'RETEST_REQUESTS', path: '/admin/dashboard?tab=RETEST_REQUESTS', label: '6. Retest Requests', icon: '📩' },
-    { key: 'AUDIT_LOGS', path: '/admin/dashboard?tab=AUDIT_LOGS', label: '7. Audit Logs', icon: '🛡️' },
+    { key: 'DEPARTMENTS', path: '/admin/dashboard?tab=DEPARTMENTS', label: 'Departments', icon: LayoutDashboard },
+    { key: 'TEACHERS', path: '/admin/dashboard?tab=TEACHERS', label: 'Teachers', icon: Users },
+    { key: 'STUDENTS', path: '/admin/dashboard?tab=STUDENTS', label: 'Students', icon: BookOpen },
+    { key: 'APPROVALS', path: '/admin/dashboard?tab=APPROVALS', label: 'Test Approvals', icon: CheckCircle },
+    { key: 'RESULTS', path: '/admin/dashboard?tab=RESULTS', label: 'Results', icon: BarChart3 },
+    { key: 'RETEST_REQUESTS', path: '/admin/dashboard?tab=RETEST_REQUESTS', label: 'Retest Requests', icon: Inbox },
+    { key: 'AUDIT_LOGS', path: '/admin/dashboard?tab=AUDIT_LOGS', label: 'Audit Logs', icon: ShieldAlert },
   ];
 
+  const adminName = adminUser?.name || 'Administrator';
+
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', background: '#0b0f19', color: '#f3f4f6', fontFamily: "'Inter', sans-serif" }}>
-      {/* Left Admin Sidebar */}
-      <aside
-        style={{
-          width: '270px',
-          background: 'rgba(17, 24, 39, 0.95)',
-          backdropFilter: 'blur(16px)',
-          borderRight: '1px solid rgba(255, 255, 255, 0.08)',
-          display: 'flex',
-          flexDirection: 'column',
-          padding: '1.5rem 1rem',
-          position: 'fixed',
-          top: 0,
-          bottom: 0,
-          left: 0,
-          zIndex: 50
-        }}
-      >
-        {/* Admin Brand Header */}
-        <div style={{ padding: '0 0.75rem 1.5rem 0.75rem', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', marginBottom: '1.5rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: 'linear-gradient(135deg, #10b981, #059669)', display: 'grid', placeItems: 'center', fontWeight: 800, fontSize: '1.25rem', color: '#fff', boxShadow: '0 4px 12px rgba(16,185,129,0.3)' }}>
-              🛡️
-            </div>
-            <div>
-              <h1 style={{ fontSize: '1.25rem', fontWeight: 800, margin: 0, letterSpacing: '-0.02em', background: 'linear-gradient(to right, #ffffff, #6ee7b7)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
-                SEEP ADMIN
-              </h1>
-              <span style={{ fontSize: '0.75rem', color: '#34d399', fontWeight: 600 }}>Administrator Portal</span>
-            </div>
+    <div className="flex h-screen bg-background overflow-hidden">
+      {/* Sidebar Desktop */}
+      <aside className="w-64 border-r border-border bg-surface hidden md:flex flex-col">
+        <div className="h-16 flex items-center px-6 border-b border-border">
+          <div className="w-8 h-8 rounded-lg bg-primary text-white flex items-center justify-center font-bold mr-3 shadow-sm">
+            <Code2 className="h-5 w-5" />
+          </div>
+          <div>
+            <span className="font-bold text-base text-slate-900 tracking-tight leading-none block">Admin Portal</span>
+            <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Command Center</span>
           </div>
         </div>
-
-        {/* Sidebar Nav Links */}
-        <nav style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', flex: 1, overflowY: 'auto' }}>
+        
+        <div className="flex-1 overflow-y-auto py-6 px-3 space-y-1">
+          <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 px-3">
+            Management
+          </div>
           {navItems.map((item) => {
             const currentTab = new URLSearchParams(location.search).get('tab') || 'DEPARTMENTS';
             const isActive = location.pathname.startsWith('/admin') && currentTab === item.key;
+            
             return (
-              <NavLink
+              <Link
                 key={item.key}
                 to={item.path}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.75rem',
-                  padding: '0.75rem 0.9rem',
-                  borderRadius: '8px',
-                  textDecoration: 'none',
-                  fontSize: '0.9rem',
-                  fontWeight: 600,
-                  color: isActive ? '#ffffff' : '#9ca3af',
-                  background: isActive ? 'linear-gradient(135deg, rgba(16, 185, 129, 0.25), rgba(5, 150, 105, 0.25))' : 'transparent',
-                  border: isActive ? '1px solid rgba(16, 185, 129, 0.4)' : '1px solid transparent',
-                  transition: 'all 0.2s ease'
-                }}
+                className={`flex items-center gap-3 px-3 py-2 rounded-md transition-colors text-sm font-medium ${
+                  isActive 
+                    ? 'bg-primary/10 text-primary' 
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                }`}
               >
-                <span style={{ fontSize: '1.1rem' }}>{item.icon}</span>
-                <span>{item.label}</span>
-              </NavLink>
-            );
+                <item.icon className={`h-4 w-4 ${isActive ? 'text-primary' : 'text-slate-400'}`} />
+                {item.label}
+              </Link>
+            )
           })}
-        </nav>
+        </div>
 
-        {/* Footer Admin User Info */}
-        <div style={{ paddingTop: '1rem', borderTop: '1px solid rgba(255, 255, 255, 0.08)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.5rem', marginBottom: '0.75rem' }}>
-            <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'linear-gradient(135deg, #10b981, #059669)', display: 'grid', placeItems: 'center', fontWeight: 700, fontSize: '0.9rem', color: '#fff' }}>
-              {adminUser?.name ? adminUser.name.charAt(0) : 'A'}
-            </div>
-            <div style={{ overflow: 'hidden' }}>
-              <div style={{ fontSize: '0.875rem', fontWeight: 600, color: '#f3f4f6', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
-                {adminUser?.name || 'System Admin'}
-              </div>
-              <div style={{ fontSize: '0.75rem', color: '#34d399' }}>{adminUser?.email || 'admin@seep.platform'}</div>
-            </div>
-          </div>
-
-          <button
+        <div className="p-4 border-t border-border">
+          <Button 
+            variant="ghost" 
+            className="w-full justify-start text-rose-500 hover:text-rose-500 hover:bg-rose-50"
             onClick={handleLogout}
-            style={{
-              width: '100%',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '0.5rem',
-              padding: '0.6rem',
-              borderRadius: '8px',
-              border: '1px solid rgba(239, 68, 68, 0.3)',
-              background: 'rgba(239, 68, 68, 0.1)',
-              color: '#f87171',
-              fontSize: '0.85rem',
-              fontWeight: 600,
-              cursor: 'pointer'
-            }}
           >
-            Logout
-          </button>
+            <LogOut className="h-4 w-4 mr-2" />
+            Log Out
+          </Button>
         </div>
       </aside>
 
-      {/* Main Content Area */}
-      <div style={{ marginLeft: '270px', flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-        {/* Sticky Top Header Bar */}
-        <header
-          style={{
-            height: '64px',
-            background: 'rgba(17, 24, 39, 0.7)',
-            backdropFilter: 'blur(12px)',
-            borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            padding: '0 2rem',
-            position: 'sticky',
-            top: 0,
-            zIndex: 40
-          }}
-        >
-          <div style={{ fontSize: '0.9rem', color: '#9ca3af', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <span style={{ color: '#34d399', fontWeight: 700 }}>SEEP</span> • Administrator Command Center
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-            <div style={{ textAlign: 'right' }}>
-              <div style={{ fontSize: '0.875rem', fontWeight: 600, color: '#f3f4f6' }}>{adminUser?.name || 'Administrator'}</div>
-              <div style={{ fontSize: '0.75rem', color: '#34d399' }}>Full Access Control</div>
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Top Header */}
+        <header className="h-16 border-b border-border bg-surface flex items-center justify-between px-6 shrink-0">
+          <div className="flex items-center gap-4">
+            <Button variant="ghost" size="icon" className="md:hidden">
+              <Menu className="h-5 w-5 text-slate-600" />
+            </Button>
+            <div className="hidden sm:flex items-center relative">
+              <Search className="h-4 w-4 absolute left-3 text-slate-400" />
+              <input 
+                type="text" 
+                placeholder="Search candidates, exams..." 
+                className="pl-9 pr-4 py-1.5 h-9 bg-slate-50 border border-border rounded-md text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all w-72 placeholder:text-slate-400"
+              />
             </div>
-            <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'linear-gradient(135deg, #10b981, #059669)', display: 'grid', placeItems: 'center', fontWeight: 700, color: '#fff', fontSize: '0.9rem' }}>
-              {adminUser?.name ? adminUser.name.charAt(0) : 'A'}
+          </div>
+          
+          <div className="flex items-center gap-4">
+            <Button variant="ghost" size="icon" className="relative text-slate-600">
+              <Bell className="h-5 w-5" />
+              <span className="absolute top-2 right-2 w-2 h-2 bg-rose-500 rounded-full" />
+            </Button>
+            
+            <div className="flex items-center gap-3 pl-4 border-l border-border">
+              <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center font-semibold text-sm">
+                {adminName.charAt(0).toUpperCase()}
+              </div>
+              <div className="hidden md:block">
+                <p className="text-sm font-semibold text-slate-900 leading-none">{adminName}</p>
+                <p className="text-xs text-slate-400 mt-1">Full Access Control</p>
+              </div>
             </div>
           </div>
         </header>
 
-        {/* Content View */}
-        <main style={{ padding: '2rem', flex: 1 }}>
+        {/* Page Content */}
+        <main className="flex-1 overflow-y-auto bg-background">
           <Outlet />
         </main>
       </div>
