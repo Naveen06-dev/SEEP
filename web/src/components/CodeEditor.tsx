@@ -5,13 +5,14 @@ type Props = {
   value: string;
   onChange: (value: string) => void;
   theme?: 'vs-dark' | 'light';
+  height?: string;
 };
 
-export function CodeEditor({ language, value, onChange, theme = 'vs-dark' }: Props) {
+export function CodeEditor({ language, value, onChange, theme = 'light', height = '380px' }: Props) {
   return (
-    <div className="code-editor">
+    <div className="code-editor" style={{ height: '100%', minHeight: height }}>
       <Editor
-        height="360px"
+        height={height}
         language={language === 'c' ? 'c' : language}
         value={value}
         theme={theme}
@@ -22,7 +23,9 @@ export function CodeEditor({ language, value, onChange, theme = 'vs-dark' }: Pro
           lineNumbers: 'on',
           automaticLayout: true,
           tabSize: 2,
-          contextmenu: false
+          contextmenu: false,
+          scrollBeyondLastLine: false,
+          fontFamily: "'Fira Code', 'Consolas', 'Courier New', monospace"
         }}
       />
     </div>

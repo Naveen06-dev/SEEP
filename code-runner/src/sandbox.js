@@ -1,26 +1,102 @@
-import { execFile } from 'child_process';
-import { promisify } from 'util';
+import { spawn, execFileSync } from 'child_process';
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
 import { LANGUAGE_CONFIG, SANDBOX_IMAGE } from './languages.js';
 
-const execFileAsync = promisify(execFile);
-const DOCKER_ENABLED = process.env.DOCKER_ENABLED !== 'false';
-const TIMEOUT_MS = parseInt(process.env.EXECUTION_TIMEOUT_MS || '5000', 10);
-const MEMORY_MB = parseInt(process.env.EXECUTION_MEMORY_MB || '128', 10);
-
-function withTimeout(promise, ms) {
-  return Promise.race([
-    promise,
-    new Promise((_, reject) => setTimeout(() => reject(new Error('Execution timeout')), ms))
-  ]);
+let isDockerAvailable = false;
+if (process.env.DOCKER_ENABLED === 'true') {
+  try {
+    execFileSync('docker', ['--version'], { stdio: 'ignore', timeout: 1500 });
+    isDockerAvailable = true;
+  } catch {
+    isDockerAvailable = false;
+  }
 }
 
-async function runInDocker(workDir, language, stdin) {
-  const cfg = LANGUAGE_CONFIG[language];
-  if (!cfg) throw new Error(`Unsupported language: ${language}`);
+const DEFAULT_TIMEOUT_MS = parseInt(process.env.EXECUTION_TIMEOUT_MS || '5000', 10);
+const MEMORY_MB = parseInt(process.env.EXECUTION_MEMORY_MB || '128', 10);
 
+function runProcess({ command, args, cwd, stdin = '', timeoutMs = DEFAULT_TIMEOUT_MS, maxBuffer = 2 * 1024 * 1024 }) {
+  return new Promise((resolve) => {
+    let stdout = '';
+    let stderr = '';
+    let killed = false;
+    let timer = null;
+
+    const child = spawn(command, args, {
+      cwd,
+      windowsHide: true,
+      stdio: ['pipe', 'pipe', 'pipe']
+    });
+
+    timer = setTimeout(() => {
+      killed = true;
+      try {
+        if (process.platform === 'win32' && child.pid) {
+          spawn('taskkill', ['/pid', child.pid.toString(), '/T', '/F']);
+        } else {
+          child.kill('SIGKILL');
+        }
+      } catch (e) {}
+      resolve({
+        stdout,
+        stderr: stderr + (stderr ? '\n' : '') + `Execution timed out (${timeoutMs}ms)`,
+        runtimeError: `Execution timed out after ${timeoutMs}ms`,
+        exitCode: 124,
+        timedOut: true
+      });
+    }, timeoutMs);
+
+    if (stdin) {
+      try {
+        child.stdin.write(stdin);
+      } catch (e) {}
+    }
+    try {
+      child.stdin.end();
+    } catch (e) {}
+
+    child.stdout.on('data', (data) => {
+      if (stdout.length < maxBuffer) {
+        stdout += data.toString('utf8');
+      }
+    });
+
+    child.stderr.on('data', (data) => {
+      if (stderr.length < maxBuffer) {
+        stderr += data.toString('utf8');
+      }
+    });
+
+    child.on('error', (err) => {
+      if (killed) return;
+      clearTimeout(timer);
+      resolve({
+        stdout,
+        stderr: stderr + (stderr ? '\n' : '') + err.message,
+        runtimeError: err.message,
+        exitCode: 1,
+        timedOut: false
+      });
+    });
+
+    child.on('close', (code) => {
+      if (killed) return;
+      clearTimeout(timer);
+      const hasError = code !== 0 && code !== null;
+      resolve({
+        stdout,
+        stderr,
+        exitCode: code ?? 0,
+        runtimeError: hasError ? (stderr.trim() || `Process exited with code ${code}`) : null,
+        timedOut: false
+      });
+    });
+  });
+}
+
+async function runInDocker(workDir, language, stdin, timeoutMs) {
   const dockerArgs = [
     'run', '--rm',
     '--network', 'none',
@@ -49,36 +125,49 @@ async function runInDocker(workDir, language, stdin) {
 
   dockerArgs.push(script);
 
-  await withTimeout(execFileAsync('docker', dockerArgs, { maxBuffer: 10 * 1024 * 1024 }), TIMEOUT_MS + 30000);
+  const start = Date.now();
+  await runProcess({
+    command: 'docker',
+    args: dockerArgs,
+    cwd: workDir,
+    stdin,
+    timeoutMs: timeoutMs + 10000
+  });
 
   const compileError = await readOptional(path.join(workDir, 'compile.err'));
   const runtimeError = await readOptional(path.join(workDir, 'runtime.err'));
   const stdout = await readOptional(path.join(workDir, 'output.txt'));
 
   return {
-    stdout: stdout.trimEnd(),
-    stderr: '',
+    stdout: stdout ? stdout.trimEnd() : '',
+    stderr: runtimeError || '',
     compileError: compileError || null,
     runtimeError: runtimeError || null,
-    executionTimeMs: TIMEOUT_MS,
+    executionTimeMs: Date.now() - start,
     memoryKb: MEMORY_MB * 1024
   };
 }
 
-async function runLocal(workDir, language, stdin) {
+async function runLocal(workDir, language, stdin, timeoutMs) {
   const cfg = LANGUAGE_CONFIG[language];
   const start = Date.now();
 
-  await fs.writeFile(path.join(workDir, 'input.txt'), stdin || '');
-
+  // 1. Compilation phase (if applicable)
   if (cfg.compile) {
-    try {
-      await withTimeout(execFileAsync(cfg.compile[0], cfg.compile.slice(1), { cwd: workDir }), TIMEOUT_MS);
-    } catch (e) {
+    const compileCmd = cfg.compile[0];
+    const compileArgs = cfg.compile.slice(1);
+    const compileRes = await runProcess({
+      command: compileCmd,
+      args: compileArgs,
+      cwd: workDir,
+      timeoutMs: Math.max(timeoutMs, 6000)
+    });
+
+    if (compileRes.exitCode !== 0 || compileRes.runtimeError) {
       return {
         stdout: '',
-        stderr: e.stderr?.toString() || '',
-        compileError: e.stderr?.toString() || e.message,
+        stderr: compileRes.stderr || '',
+        compileError: compileRes.stderr || compileRes.runtimeError || 'Compilation failed',
         runtimeError: null,
         executionTimeMs: Date.now() - start,
         memoryKb: 0
@@ -86,30 +175,41 @@ async function runLocal(workDir, language, stdin) {
     }
   }
 
-  try {
-    const input = await fs.readFile(path.join(workDir, 'input.txt'), 'utf8');
-    const result = await withTimeout(
-      execFileAsync(cfg.run[0], cfg.run.slice(1), { cwd: workDir, input, maxBuffer: 1024 * 1024 }),
-      TIMEOUT_MS
-    );
-    return {
-      stdout: result.stdout?.toString() || '',
-      stderr: result.stderr?.toString() || '',
-      compileError: null,
-      runtimeError: null,
-      executionTimeMs: Date.now() - start,
-      memoryKb: 0
-    };
-  } catch (e) {
-    return {
-      stdout: e.stdout?.toString() || '',
-      stderr: e.stderr?.toString() || '',
-      compileError: null,
-      runtimeError: e.stderr?.toString() || e.message,
-      executionTimeMs: Date.now() - start,
-      memoryKb: 0
-    };
+  // 2. Execution phase with piped stdin
+  let runCmd = cfg.run[0];
+  let runArgs = cfg.run.slice(1);
+
+  if (language === 'c' || language === 'cpp') {
+    const exeName = process.platform === 'win32' ? 'main.exe' : 'main';
+    runCmd = path.resolve(workDir, exeName);
+    runArgs = [];
+  } else if (language === 'java') {
+    runCmd = 'java';
+    runArgs = ['-cp', workDir, 'Main'];
+  } else if (language === 'python' || language === 'py') {
+    runCmd = process.platform === 'win32' ? 'python' : 'python3';
+    runArgs = [path.resolve(workDir, 'main.py')];
+  } else if (language === 'javascript' || language === 'js') {
+    runCmd = 'node';
+    runArgs = [path.resolve(workDir, 'main.js')];
   }
+
+  const execRes = await runProcess({
+    command: runCmd,
+    args: runArgs,
+    cwd: workDir,
+    stdin: stdin || '',
+    timeoutMs
+  });
+
+  return {
+    stdout: execRes.stdout ? execRes.stdout.trimEnd() : '',
+    stderr: execRes.stderr ? execRes.stderr.trimEnd() : '',
+    compileError: null,
+    runtimeError: execRes.runtimeError || null,
+    executionTimeMs: Date.now() - start,
+    memoryKb: 0
+  };
 }
 
 async function readOptional(filePath) {
@@ -125,20 +225,22 @@ export async function executeInSandbox({ language, sourceCode, stdin = '', timeL
   const cfg = LANGUAGE_CONFIG[language];
   if (!cfg) throw new Error(`Unsupported language: ${language}`);
 
+  const timeoutMs = timeLimitMs || DEFAULT_TIMEOUT_MS;
   const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'seep-run-'));
+
   try {
     await fs.writeFile(path.join(workDir, cfg.filename), sourceCode);
     await fs.writeFile(path.join(workDir, 'input.txt'), stdin);
 
-    if (DOCKER_ENABLED) {
+    if (isDockerAvailable) {
       try {
-        return await runInDocker(workDir, language, stdin);
+        return await runInDocker(workDir, language, stdin, timeoutMs);
       } catch (dockerErr) {
-        console.warn('[sandbox] Docker failed, falling back to local:', dockerErr.message);
+        console.warn('[sandbox] Docker run error, falling back to native local:', dockerErr.message);
       }
     }
 
-    return await runLocal(workDir, language, stdin);
+    return await runLocal(workDir, language, stdin, timeoutMs);
   } finally {
     await fs.rm(workDir, { recursive: true, force: true }).catch(() => {});
   }

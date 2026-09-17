@@ -79,21 +79,104 @@ router.post('/:id/start', async (req, res) => {
 
 router.post('/:id/submit', async (req, res) => {
   try {
-    const { mcqAnswers, malpractice, malpracticeReason, malpracticeType } = req.body || {};
+    const { mcqAnswers = {}, malpractice, malpracticeReason, malpracticeType } = req.body || {};
     let mcqScore = 0;
+    let maxMcqMarks = 0;
+    let mcqCorrect = 0;
+    let codingScore = 0;
+    let maxCodingMarks = 0;
     const finalStatus = malpractice ? 'MALPRACTICE' : 'SUBMITTED';
 
     try {
       const attempt = await prisma.examAttempt.findUnique({
         where: { id: req.params.id },
-        include: { exam: { include: { mcqQuestions: true } } }
+        include: {
+          exam: {
+            include: {
+              mcqQuestions: true,
+              codingQuestions: true
+            }
+          },
+          codingSubmissions: true
+        }
       });
-      if (attempt && attempt.exam?.mcqQuestions) {
-        for (const q of attempt.exam.mcqQuestions) {
-          if (mcqAnswers && mcqAnswers[q.id] !== undefined && mcqAnswers[q.id] === q.correctIndex) {
-            mcqScore += q.marks || 1;
+
+      if (attempt && attempt.exam) {
+        // Calculate MCQ Score
+        const mcqs = attempt.exam.mcqQuestions || [];
+        for (const q of mcqs) {
+          const qMarks = q.marks || 1;
+          maxMcqMarks += qMarks;
+          const selected = mcqAnswers[q.id];
+          if (selected !== undefined && selected !== null) {
+            // Save McqAnswer
+            try {
+              await prisma.mcqAnswer.upsert({
+                where: {
+                  attemptId_mcqQuestionId: {
+                    attemptId: req.params.id,
+                    mcqQuestionId: q.id
+                  }
+                },
+                create: {
+                  attemptId: req.params.id,
+                  mcqQuestionId: q.id,
+                  selectedIndex: selected
+                },
+                update: {
+                  selectedIndex: selected
+                }
+              });
+            } catch (ansErr) {
+              // ignore answer upsert error
+            }
+
+            if (selected === q.correctIndex) {
+              mcqScore += qMarks;
+              mcqCorrect++;
+            }
           }
         }
+
+        // Calculate Coding Score from coding submissions
+        const codingQs = attempt.exam.codingQuestions || [];
+        const submissions = attempt.codingSubmissions || [];
+        const codingDetails = [];
+
+        for (const cq of codingQs) {
+          const qMarks = cq.marks || 15;
+          maxCodingMarks += qMarks;
+          const qSubmissions = submissions.filter(s => s.codingQuestionId === cq.id);
+          let bestScore = 0;
+          let bestStatus = 'NOT_ATTEMPTED';
+          let bestPassedCases = 0;
+          let totalCases = 0;
+
+          if (qSubmissions.length > 0) {
+            for (const s of qSubmissions) {
+              if (s.score > bestScore) {
+                bestScore = s.score;
+                bestStatus = s.status;
+                bestPassedCases = s.passedCases;
+                totalCases = s.totalCases;
+              }
+            }
+          }
+          codingScore += bestScore;
+          codingDetails.push({
+            id: cq.id,
+            title: cq.title,
+            maxMarks: qMarks,
+            score: bestScore,
+            status: bestStatus,
+            passedCases: bestPassedCases,
+            totalCases
+          });
+        }
+
+        const totalScore = Math.round((mcqScore + codingScore) * 100) / 100;
+        const totalMarks = maxMcqMarks + maxCodingMarks;
+        const percentage = totalMarks > 0 ? Math.round((totalScore / totalMarks) * 100) : 0;
 
         const updated = await prisma.examAttempt.update({
           where: { id: req.params.id },
@@ -101,17 +184,74 @@ router.post('/:id/submit', async (req, res) => {
             status: finalStatus,
             submittedAt: new Date(),
             mcqScore,
-            totalScore: mcqScore
+            codingScore,
+            totalScore,
+            resultVisible: true
           }
         });
-        return res.json({ success: true, status: updated.status, mcqScore, totalScore: updated.totalScore });
+
+        return res.json({
+          success: true,
+          status: updated.status,
+          mcqScore,
+          maxMcqMarks,
+          codingScore,
+          maxCodingMarks,
+          totalScore,
+          totalMarks,
+          percentage,
+          mcqBreakdown: {
+            total: mcqs.length,
+            answered: Object.keys(mcqAnswers).length,
+            correct: mcqCorrect,
+            score: mcqScore,
+            maxMarks: maxMcqMarks
+          },
+          codingBreakdown: {
+            total: codingQs.length,
+            attempted: codingDetails.filter(d => d.status !== 'NOT_ATTEMPTED').length,
+            score: codingScore,
+            maxMarks: maxCodingMarks,
+            details: codingDetails
+          }
+        });
       }
     } catch (err) {
-      console.warn('DB error in submit attempt');
+      console.warn('DB error in submit attempt:', err.message);
     }
 
-    // Mock fallback submit
-    res.json({ success: true, status: finalStatus, mcqScore: 10, totalScore: 10 });
+    // Mock fallback calculation
+    const answeredCount = Object.keys(mcqAnswers || {}).length;
+    const fallbackMcqScore = answeredCount > 0 ? answeredCount * 2 : 10;
+    const fallbackMaxMcq = Math.max(answeredCount * 2, 20);
+    const fallbackTotal = fallbackMcqScore;
+    const fallbackMaxTotal = fallbackMaxMcq;
+
+    res.json({
+      success: true,
+      status: finalStatus,
+      mcqScore: fallbackMcqScore,
+      maxMcqMarks: fallbackMaxMcq,
+      codingScore: 0,
+      maxCodingMarks: 0,
+      totalScore: fallbackTotal,
+      totalMarks: fallbackMaxTotal,
+      percentage: fallbackMaxTotal > 0 ? Math.round((fallbackTotal / fallbackMaxTotal) * 100) : 100,
+      mcqBreakdown: {
+        total: answeredCount || 10,
+        answered: answeredCount,
+        correct: answeredCount,
+        score: fallbackMcqScore,
+        maxMarks: fallbackMaxMcq
+      },
+      codingBreakdown: {
+        total: 0,
+        attempted: 0,
+        score: 0,
+        maxMarks: 0,
+        details: []
+      }
+    });
   } catch (e) {
     console.error('Submit attempt error:', e);
     res.status(400).json({ error: e.message });
