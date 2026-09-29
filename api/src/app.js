@@ -11,6 +11,7 @@ import extensionRoutes from './routes/extension.js';
 import { prisma } from './lib/prisma.js';
 
 export function createApp() {
+  const app = express();
   // Robust CORS configuration supporting Vercel previews, production domains, and localhost
   app.use(cors({
     origin: (origin, callback) => {
