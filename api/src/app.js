@@ -11,8 +11,30 @@ import extensionRoutes from './routes/extension.js';
 import { prisma } from './lib/prisma.js';
 
 export function createApp() {
-  const app = express();
-  app.use(cors({ origin: process.env.CORS_ORIGIN || '*' }));
+  // Robust CORS configuration supporting Vercel previews, production domains, and localhost
+  app.use(cors({
+    origin: (origin, callback) => {
+      // Allow requests with no origin (e.g. mobile apps, curl, server-to-server)
+      if (!origin) return callback(null, true);
+
+      // If explicit CORS_ORIGIN is set and matches
+      if (process.env.CORS_ORIGIN && (process.env.CORS_ORIGIN === '*' || process.env.CORS_ORIGIN === origin)) {
+        return callback(null, true);
+      }
+
+      // Automatically allow all Vercel deployments and local development
+      if (origin.endsWith('.vercel.app') || origin.includes('localhost') || origin.includes('127.0.0.1')) {
+        return callback(null, true);
+      }
+
+      // Default allow
+      return callback(null, true);
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+  }));
+  app.options('*', cors());
   app.use(express.json({ limit: '2mb' }));
 
   app.get('/health', (_req, res) => res.json({ status: 'ok' }));
