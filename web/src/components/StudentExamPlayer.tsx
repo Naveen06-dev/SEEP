@@ -47,6 +47,28 @@ export function StudentExamPlayer() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [submitCountdown, setSubmitCountdown] = useState<number | null>(null);
+  
+  // Desktop/Laptop Only Enforcement
+  const [isMobileDevice, setIsMobileDevice] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    const ua = navigator.userAgent || navigator.vendor || (window as any).opera || '';
+    const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile|mobile|CriOS/i.test(ua);
+    const isSmallViewport = window.innerWidth < 1024;
+    return isMobileUA || isSmallViewport;
+  });
+  const [copiedLink, setCopiedLink] = useState(false);
+
+  useEffect(() => {
+    const checkDevice = () => {
+      const ua = navigator.userAgent || navigator.vendor || (window as any).opera || '';
+      const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile|mobile|CriOS/i.test(ua);
+      const isSmallViewport = window.innerWidth < 1024;
+      setIsMobileDevice(isMobileUA || isSmallViewport);
+    };
+
+    window.addEventListener('resize', checkDevice);
+    return () => window.removeEventListener('resize', checkDevice);
+  }, []);
   const [examResult, setExamResult] = useState<{
     status: string;
     totalScore: number;
@@ -812,6 +834,175 @@ export function StudentExamPlayer() {
       setPhase('error');
     }
   };
+
+  if (isMobileDevice) {
+    return (
+      <div style={{
+        minHeight: '100vh',
+        background: 'linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '1.5rem',
+        fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+        color: '#f8fafc'
+      }}>
+        <div style={{
+          maxWidth: '520px',
+          width: '100%',
+          background: 'rgba(30, 41, 59, 0.85)',
+          backdropFilter: 'blur(16px)',
+          borderRadius: '24px',
+          padding: '2.5rem 2rem',
+          border: '1px solid rgba(255, 255, 255, 0.1)',
+          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
+          textAlign: 'center'
+        }}>
+          {/* Badge */}
+          <div style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            padding: '0.4rem 1rem',
+            borderRadius: '9999px',
+            background: 'rgba(239, 68, 68, 0.15)',
+            border: '1px solid rgba(239, 68, 68, 0.4)',
+            color: '#fca5a5',
+            fontSize: '0.78rem',
+            fontWeight: 700,
+            letterSpacing: '0.05em',
+            textTransform: 'uppercase',
+            marginBottom: '1.5rem'
+          }}>
+            <span>🚫</span> Desktop / Laptop Required
+          </div>
+
+          {/* Icon Graphics */}
+          <div style={{
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            gap: '1.25rem',
+            marginBottom: '1.5rem'
+          }}>
+            <div style={{
+              width: '64px',
+              height: '64px',
+              borderRadius: '16px',
+              background: 'rgba(239, 68, 68, 0.1)',
+              border: '1px solid rgba(239, 68, 68, 0.3)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '2rem'
+            }}>
+              📱
+            </div>
+            <div style={{ fontSize: '1.5rem', color: '#94a3b8' }}>➔</div>
+            <div style={{
+              width: '64px',
+              height: '64px',
+              borderRadius: '16px',
+              background: 'rgba(59, 130, 246, 0.15)',
+              border: '1px solid rgba(59, 130, 246, 0.4)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '2rem'
+            }}>
+              💻
+            </div>
+          </div>
+
+          <h2 style={{
+            fontSize: '1.5rem',
+            fontWeight: 800,
+            margin: '0 0 0.75rem',
+            color: '#ffffff',
+            letterSpacing: '-0.02em'
+          }}>
+            Desktop or Laptop Only
+          </h2>
+
+          <p style={{
+            fontSize: '0.92rem',
+            lineHeight: 1.6,
+            color: '#cbd5e1',
+            margin: '0 0 1.75rem'
+          }}>
+            This proctored examination requires a physical <strong>Laptop or Desktop PC</strong> with a keyboard, mouse, and desktop Chrome security extensions enabled. Mobile phones and tablets are not supported.
+          </p>
+
+          {/* Security & System Requirements Card */}
+          <div style={{
+            background: 'rgba(15, 23, 42, 0.6)',
+            borderRadius: '16px',
+            padding: '1.25rem',
+            marginBottom: '1.75rem',
+            textAlign: 'left',
+            border: '1px solid rgba(255, 255, 255, 0.05)',
+            fontSize: '0.85rem'
+          }}>
+            <div style={{ fontWeight: 700, color: '#93c5fd', marginBottom: '0.6rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              🛡️ Examination Environment Rules:
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem', color: '#94a3b8' }}>
+              <div>❌ Smartphones and tablets are strictly prohibited.</div>
+              <div>❌ Touchscreen virtual keyboards are disabled.</div>
+              <div>✔ Physical laptop or desktop (Windows / macOS / Linux).</div>
+              <div>✔ Minimum screen resolution of 1024px width.</div>
+            </div>
+          </div>
+
+          {/* Action buttons */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+            <button
+              onClick={() => {
+                navigator.clipboard.writeText(window.location.href);
+                setCopiedLink(true);
+                setTimeout(() => setCopiedLink(false), 2500);
+              }}
+              style={{
+                width: '100%',
+                padding: '0.85rem',
+                borderRadius: '12px',
+                background: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
+                color: '#ffffff',
+                border: 'none',
+                fontWeight: 700,
+                fontSize: '0.92rem',
+                cursor: 'pointer',
+                boxShadow: '0 4px 14px rgba(37, 99, 235, 0.4)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '0.5rem'
+              }}
+            >
+              <span>📋</span> {copiedLink ? 'Link Copied to Clipboard!' : 'Copy Exam Link for Laptop'}
+            </button>
+
+            <button
+              onClick={() => navigate('/student/dashboard')}
+              style={{
+                width: '100%',
+                padding: '0.8rem',
+                borderRadius: '12px',
+                background: 'rgba(255, 255, 255, 0.08)',
+                color: '#cbd5e1',
+                border: '1px solid rgba(255, 255, 255, 0.12)',
+                fontWeight: 600,
+                fontSize: '0.88rem',
+                cursor: 'pointer'
+              }}
+            >
+              Back to Dashboard
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (phase === 'error') {
     return (
