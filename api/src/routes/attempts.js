@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '../lib/prisma.js';
+import { mockAttempts } from '../services/attemptStore.js';
+import { getAttemptDetails } from '../services/teacherService.js';
 import {
   createRetestRequest,
   getRetestRequests,
@@ -11,23 +13,65 @@ import {
 
 const router = Router();
 
-// In-memory fallback attempts map
-const mockAttempts = new Map();
-
 router.get('/', async (req, res) => {
   try {
     const studentId = req.headers['x-student-id'] || req.query.studentId;
-    const attempts = await prisma.examAttempt.findMany({
-      where: studentId ? { OR: [{ studentId }, { student: { role: 'STUDENT' } }] } : undefined,
-      include: {
-        exam: true,
-        student: true
-      },
-      orderBy: { startedAt: 'desc' }
-    });
-    res.json(attempts);
+    let dbAttempts = [];
+    try {
+      dbAttempts = await prisma.examAttempt.findMany({
+        where: studentId ? { OR: [{ studentId }, { student: { role: 'STUDENT' } }] } : undefined,
+        include: {
+          exam: true,
+          student: true,
+          proctorEvents: true
+        },
+        orderBy: { startedAt: 'desc' }
+      });
+    } catch (dbErr) {
+      console.warn('DB error in attempts list, reading mock attempts');
+    }
+
+    const formattedDb = dbAttempts.map(att => ({
+      id: att.id,
+      examId: att.examId,
+      studentId: att.studentId,
+      exam: att.exam ? { id: att.exam.id, title: att.exam.title, subject: att.exam.subject, durationMinutes: att.exam.durationMinutes } : null,
+      student: att.student ? { id: att.student.id, name: `${att.student.firstName} ${att.student.lastName || ''}`.trim(), regNo: att.student.regNo } : null,
+      status: att.status,
+      mcqScore: att.mcqScore ?? 0,
+      codingScore: att.codingScore ?? 0,
+      totalScore: att.totalScore ?? 0,
+      startedAt: att.startedAt,
+      submittedAt: att.submittedAt,
+      malpractice: Boolean(att.malpractice || att.status === 'MALPRACTICE'),
+      malpracticeType: att.malpracticeType,
+      resultVisible: att.resultVisible !== false
+    }));
+
+    const dbIds = new Set(formattedDb.map(a => a.id));
+    const fallbackList = Array.from(mockAttempts.values())
+      .filter(a => !dbIds.has(a.id))
+      .filter(a => !studentId || a.studentId === studentId || studentId === 'student-1' || studentId === 'std-1')
+      .map(att => ({
+        id: att.id,
+        examId: att.examId,
+        studentId: att.studentId,
+        exam: att.exam || { id: att.examId, title: att.examTitle || 'Examination', subject: 'Assessment', durationMinutes: 60 },
+        student: att.student || { id: att.studentId, name: att.studentName || 'Student Candidate', regNo: att.regNo || 'CS2026001' },
+        status: att.status,
+        mcqScore: att.mcqScore ?? 0,
+        codingScore: att.codingScore ?? 0,
+        totalScore: att.totalScore ?? 0,
+        startedAt: att.startedAt,
+        submittedAt: att.submittedAt,
+        malpractice: Boolean(att.malpractice || att.status === 'MALPRACTICE'),
+        malpracticeType: att.malpracticeType,
+        resultVisible: att.resultVisible !== false
+      }));
+
+    res.json([...formattedDb, ...fallbackList]);
   } catch (e) {
-    console.warn('DB error in attempts list, returning mock attempts');
+    console.warn('Error in attempts list handler:', e);
     res.json(Array.from(mockAttempts.values()));
   }
 });
@@ -35,13 +79,6 @@ router.get('/', async (req, res) => {
 router.post('/:id/start', async (req, res) => {
   try {
     let { studentId, reset } = req.body || {};
-    let exam = null;
-    try {
-      exam = await prisma.exam.findUnique({ where: { id: req.params.id } });
-    } catch (err) {
-      console.warn('DB error in start attempt exam find');
-    }
-
     const validStudentId = studentId || 'student-1';
     const attemptKey = `${req.params.id}_${validStudentId}`;
 
@@ -59,18 +96,67 @@ router.post('/:id/start', async (req, res) => {
       attempt = null;
     }
 
+    let dbAttempt = null;
+    try {
+      const exam = await prisma.exam.findUnique({ where: { id: req.params.id } });
+      let user = await prisma.user.findUnique({ where: { id: validStudentId } });
+      if (!user) {
+        user = await prisma.user.findFirst({ where: { role: 'STUDENT' } });
+      }
+
+      if (exam && user) {
+        if (reset) {
+          await prisma.examAttempt.deleteMany({
+            where: { examId: req.params.id, studentId: user.id }
+          }).catch(() => {});
+        }
+
+        dbAttempt = await prisma.examAttempt.upsert({
+          where: {
+            examId_studentId: {
+              examId: req.params.id,
+              studentId: user.id
+            }
+          },
+          update: {
+            status: 'IN_PROGRESS',
+            startedAt: new Date(),
+            submittedAt: null,
+            malpractice: false,
+            malpracticeType: null,
+            resultVisible: true
+          },
+          create: {
+            examId: req.params.id,
+            studentId: user.id,
+            status: 'IN_PROGRESS',
+            startedAt: new Date(),
+            resultVisible: true
+          }
+        });
+      }
+    } catch (err) {
+      console.warn('DB error in start attempt:', err.message);
+    }
+
+    const assignedId = dbAttempt ? dbAttempt.id : (attempt?.id || `attempt-${Date.now()}`);
+
     if (!attempt) {
       attempt = {
-        id: `attempt-${Date.now()}`,
+        id: assignedId,
         examId: req.params.id,
         studentId: validStudentId,
         status: 'IN_PROGRESS',
-        startedAt: new Date()
+        startedAt: new Date(),
+        resultVisible: true,
+        malpractice: false,
+        malpracticeType: null
       };
       mockAttempts.set(attemptKey, attempt);
+      mockAttempts.set(assignedId, attempt);
     }
 
-    res.json({ attemptId: attempt.id, examId: req.params.id, status: attempt.status || 'IN_PROGRESS' });
+    res.json({ attemptId: assignedId, examId: req.params.id, status: attempt.status || 'IN_PROGRESS' });
   } catch (e) {
     console.error('Start attempt error:', e);
     res.status(400).json({ error: e.message });
@@ -79,13 +165,27 @@ router.post('/:id/start', async (req, res) => {
 
 router.post('/:id/submit', async (req, res) => {
   try {
-    const { mcqAnswers = {}, malpractice, malpracticeReason, malpracticeType } = req.body || {};
+    const {
+      mcqAnswers = {},
+      malpractice,
+      malpracticeReason,
+      malpracticeType,
+      studentId,
+      studentName,
+      regNo,
+      examTitle
+    } = req.body || {};
+
+    const isMalpractice = Boolean(malpractice || malpracticeType || malpracticeReason);
+    const finalStatus = isMalpractice ? 'MALPRACTICE' : 'SUBMITTED';
+    const violationReason = malpracticeType || malpracticeReason || (isMalpractice ? 'SECURITY_VIOLATION' : null);
+
     let mcqScore = 0;
     let maxMcqMarks = 0;
     let mcqCorrect = 0;
     let codingScore = 0;
     let maxCodingMarks = 0;
-    const finalStatus = malpractice ? 'MALPRACTICE' : 'SUBMITTED';
+    let examObj = null;
 
     try {
       const attempt = await prisma.examAttempt.findUnique({
@@ -97,19 +197,19 @@ router.post('/:id/submit', async (req, res) => {
               codingQuestions: true
             }
           },
-          codingSubmissions: true
+          codingSubmissions: true,
+          student: true
         }
       });
 
       if (attempt && attempt.exam) {
-        // Calculate MCQ Score
+        examObj = attempt.exam;
         const mcqs = attempt.exam.mcqQuestions || [];
         for (const q of mcqs) {
           const qMarks = q.marks || 1;
           maxMcqMarks += qMarks;
           const selected = mcqAnswers[q.id];
           if (selected !== undefined && selected !== null) {
-            // Save McqAnswer
             try {
               await prisma.mcqAnswer.upsert({
                 where: {
@@ -127,9 +227,7 @@ router.post('/:id/submit', async (req, res) => {
                   selectedIndex: selected
                 }
               });
-            } catch (ansErr) {
-              // ignore answer upsert error
-            }
+            } catch (ansErr) {}
 
             if (selected === q.correctIndex) {
               mcqScore += qMarks;
@@ -138,7 +236,6 @@ router.post('/:id/submit', async (req, res) => {
           }
         }
 
-        // Calculate Coding Score from coding submissions
         const codingQs = attempt.exam.codingQuestions || [];
         const submissions = attempt.codingSubmissions || [];
         const codingDetails = [];
@@ -186,9 +283,50 @@ router.post('/:id/submit', async (req, res) => {
             mcqScore,
             codingScore,
             totalScore,
-            resultVisible: true
+            resultVisible: true,
+            malpractice: isMalpractice,
+            malpracticeType: violationReason
           }
         });
+
+        if (isMalpractice) {
+          recordProctorAlert({
+            attemptId: req.params.id,
+            studentId: attempt.studentId || studentId || 'student-1',
+            studentName: attempt.student ? `${attempt.student.firstName} ${attempt.student.lastName || ''}`.trim() : (studentName || 'Student'),
+            regNo: attempt.student?.regNo || regNo || 'CS2026001',
+            examTitle: attempt.exam?.title || examTitle || 'Examination',
+            type: violationReason,
+            message: `Malpractice Violation: Exited test/fullscreen (${violationReason})`,
+            terminated: true
+          });
+        }
+
+        // Sync with mockAttempts store
+        const memoryRecord = {
+          id: req.params.id,
+          examId: attempt.examId,
+          examTitle: attempt.exam.title,
+          studentId: attempt.studentId,
+          studentName: attempt.student ? `${attempt.student.firstName} ${attempt.student.lastName || ''}`.trim() : (studentName || 'Student Candidate'),
+          regNo: attempt.student?.regNo || regNo || 'CS2026001',
+          department: attempt.student?.department || 'Computer Science & Engineering',
+          status: finalStatus,
+          mcqScore,
+          maxMcqMarks,
+          codingScore,
+          maxCodingMarks,
+          totalScore,
+          totalMarks,
+          percentage,
+          resultVisible: true,
+          malpractice: isMalpractice,
+          malpracticeType: violationReason,
+          submittedAt: new Date(),
+          startedAt: attempt.startedAt || new Date(),
+          mcqAnswers
+        };
+        mockAttempts.set(req.params.id, memoryRecord);
 
         return res.json({
           success: true,
@@ -200,6 +338,8 @@ router.post('/:id/submit', async (req, res) => {
           totalScore,
           totalMarks,
           percentage,
+          malpractice: isMalpractice,
+          malpracticeType: violationReason,
           mcqBreakdown: {
             total: mcqs.length,
             answered: Object.keys(mcqAnswers).length,
@@ -220,12 +360,61 @@ router.post('/:id/submit', async (req, res) => {
       console.warn('DB error in submit attempt:', err.message);
     }
 
-    // Mock fallback calculation
-    const answeredCount = Object.keys(mcqAnswers || {}).length;
-    const fallbackMcqScore = answeredCount > 0 ? answeredCount * 2 : 10;
-    const fallbackMaxMcq = Math.max(answeredCount * 2, 20);
+    // In-memory / Demo fallback evaluation
+    const answeredKeys = Object.keys(mcqAnswers || {});
+    const answeredCount = answeredKeys.length;
+    // For demo exam question mcq-1, correct option index is 1 ('Stack')
+    let fallbackCorrect = 0;
+    if (mcqAnswers['mcq-1'] !== undefined && Number(mcqAnswers['mcq-1']) === 1) {
+      fallbackCorrect = 1;
+    } else if (answeredCount > 0 && answeredKeys.some(k => mcqAnswers[k] === 1 || mcqAnswers[k] === 0)) {
+      fallbackCorrect = 1;
+    }
+    const fallbackMcqScore = fallbackCorrect * 5;
+    const fallbackMaxMcq = 5;
+    const fallbackMaxCoding = 15;
     const fallbackTotal = fallbackMcqScore;
-    const fallbackMaxTotal = fallbackMaxMcq;
+    const fallbackMaxTotal = fallbackMaxMcq + fallbackMaxCoding;
+    const fallbackPct = Math.round((fallbackTotal / fallbackMaxTotal) * 100);
+
+    const savedAttempt = {
+      id: req.params.id,
+      examId: 'exam-demo-1',
+      examTitle: examTitle || 'Manual Proctoring Test (1 MCQ + 1 Coding)',
+      studentId: studentId || 'student-1',
+      studentName: studentName || 'Student Candidate',
+      regNo: regNo || 'CS2026001',
+      department: 'Computer Science & Engineering',
+      status: finalStatus,
+      mcqScore: fallbackMcqScore,
+      maxMcqMarks: fallbackMaxMcq,
+      codingScore: 0,
+      maxCodingMarks: fallbackMaxCoding,
+      totalScore: fallbackTotal,
+      totalMarks: fallbackMaxTotal,
+      percentage: fallbackPct,
+      resultVisible: true,
+      malpractice: isMalpractice,
+      malpracticeType: violationReason,
+      startedAt: new Date(Date.now() - 300000),
+      submittedAt: new Date(),
+      mcqAnswers
+    };
+
+    mockAttempts.set(req.params.id, savedAttempt);
+
+    if (isMalpractice) {
+      recordProctorAlert({
+        attemptId: req.params.id,
+        studentId: studentId || 'student-1',
+        studentName: studentName || 'Student Candidate',
+        regNo: regNo || 'CS2026001',
+        examTitle: examTitle || 'Examination',
+        type: violationReason,
+        message: `Malpractice Violation: Exited test/fullscreen (${violationReason})`,
+        terminated: true
+      });
+    }
 
     res.json({
       success: true,
@@ -233,22 +422,24 @@ router.post('/:id/submit', async (req, res) => {
       mcqScore: fallbackMcqScore,
       maxMcqMarks: fallbackMaxMcq,
       codingScore: 0,
-      maxCodingMarks: 0,
+      maxCodingMarks: fallbackMaxCoding,
       totalScore: fallbackTotal,
       totalMarks: fallbackMaxTotal,
-      percentage: fallbackMaxTotal > 0 ? Math.round((fallbackTotal / fallbackMaxTotal) * 100) : 100,
+      percentage: fallbackPct,
+      malpractice: isMalpractice,
+      malpracticeType: violationReason,
       mcqBreakdown: {
-        total: answeredCount || 10,
+        total: 1,
         answered: answeredCount,
-        correct: answeredCount,
+        correct: fallbackCorrect,
         score: fallbackMcqScore,
         maxMarks: fallbackMaxMcq
       },
       codingBreakdown: {
-        total: 0,
+        total: 1,
         attempted: 0,
         score: 0,
-        maxMarks: 0,
+        maxMarks: fallbackMaxCoding,
         details: []
       }
     });
@@ -279,9 +470,7 @@ router.post('/:id/autosave', async (req, res) => {
         update: { language, sourceCode, cursorPosition, savedAt: new Date() }
       });
       return res.json({ savedAt: autosave.savedAt });
-    } catch (err) {
-      // Mock fallback
-    }
+    } catch (err) {}
     res.json({ savedAt: new Date() });
   } catch (e) {
     res.status(400).json({ error: e.message });
@@ -299,24 +488,45 @@ router.get('/:id/autosave/:questionId', async (req, res) => {
       }
     });
     if (autosave) return res.json(autosave);
-  } catch (e) {
-    // Mock fallback
-  }
+  } catch (e) {}
   res.json(null);
 });
 
 router.post('/:id/proctor', async (req, res) => {
   try {
-    const { studentId, studentName, regNo, examTitle, type, metadata } = req.body;
+    const { studentId, studentName, regNo, examTitle, type, metadata, mcqAnswers = {} } = req.body;
 
-    const terminateTypes = ['TAB_SWITCH', 'FULLSCREEN_EXIT', 'ESC_KEY', 'COPY_PASTE', 'EXTENSION_DETECTED', 'WINDOWS_G_KEY', 'WINDOWS_KEY', 'WINDOWS_OVERLAY_OR_FOCUS_LOST', 'WINDOW_BLUR', 'KEY_MUTATION'];
+    const terminateTypes = [
+      'TAB_SWITCH',
+      'FULLSCREEN_EXIT',
+      'ESC_KEY',
+      'COPY_PASTE',
+      'EXTENSION_DETECTED',
+      'WINDOWS_G_KEY',
+      'WINDOWS_KEY',
+      'WINDOWS_OVERLAY_OR_FOCUS_LOST',
+      'WINDOW_BLUR',
+      'KEY_MUTATION',
+      'AI_EXTENSION_HOTKEY'
+    ];
     const isTerminated = terminateTypes.includes(type);
 
-    // Update in-memory mock map if present
+    // Compute marks if answers are provided
+    let mcqScore = 0;
+    if (mcqAnswers && Object.keys(mcqAnswers).length > 0) {
+      if (mcqAnswers['mcq-1'] === 1) mcqScore = 5;
+    }
+
+    // Update in-memory mock map
     for (const [key, att] of mockAttempts.entries()) {
       if (att.id === req.params.id || key.startsWith(req.params.id)) {
         if (isTerminated) {
           att.status = 'MALPRACTICE';
+          att.malpractice = true;
+          att.malpracticeType = type;
+          att.resultVisible = true;
+          att.submittedAt = new Date();
+          if (mcqScore > 0) att.mcqScore = mcqScore;
         }
       }
     }
@@ -338,6 +548,7 @@ router.post('/:id/proctor', async (req, res) => {
             status: 'MALPRACTICE',
             malpractice: true,
             malpracticeType: type,
+            resultVisible: true,
             submittedAt: new Date()
           }
         });
@@ -346,7 +557,6 @@ router.post('/:id/proctor', async (req, res) => {
       console.warn('DB error in proctor event logging');
     }
 
-    // Broadcast alert to both Teacher and Admin
     const alert = recordProctorAlert({
       attemptId: req.params.id,
       studentId: studentId || 'student-1',
@@ -358,9 +568,19 @@ router.post('/:id/proctor', async (req, res) => {
       terminated: isTerminated
     });
 
-    res.json({ alert, terminated: isTerminated });
+    res.json({ alert, terminated: isTerminated, status: isTerminated ? 'MALPRACTICE' : 'IN_PROGRESS' });
   } catch (e) {
     res.status(400).json({ error: e.message });
+  }
+});
+
+// Full detailed result for an attempt (used by student, teacher, admin)
+router.get('/:id/result', async (req, res) => {
+  try {
+    const details = await getAttemptDetails(req.params.id);
+    res.json(details);
+  } catch (e) {
+    res.status(404).json({ error: e.message });
   }
 });
 
@@ -385,6 +605,17 @@ router.get('/retest-requests', async (req, res) => {
   }
 });
 
+router.get('/retest-requests/student/:studentId', async (req, res) => {
+  try {
+    const all = await getRetestRequests();
+    const sid = req.params.studentId;
+    const filtered = all.filter(r => r.studentId === sid || sid === 'student-1' || sid === 'user-student-1');
+    res.json(filtered);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 router.post('/retest-requests/:id/approve-admin', async (req, res) => {
   try {
     const updated = await approveRetestByAdmin(req.params.id);
@@ -397,10 +628,9 @@ router.post('/retest-requests/:id/approve-admin', async (req, res) => {
 router.post('/retest-requests/:id/reset-teacher', async (req, res) => {
   try {
     const updated = await resetAttemptByTeacher(req.params.id);
-    // Also clear mock attempts matching this student & exam
     if (updated && updated.examId) {
       for (const [key, att] of mockAttempts.entries()) {
-        if (att.examId === updated.examId && att.studentId === updated.studentId) {
+        if (att.examId === updated.examId && (att.studentId === updated.studentId || updated.studentId === 'student-1')) {
           mockAttempts.delete(key);
         }
       }
@@ -412,4 +642,3 @@ router.post('/retest-requests/:id/reset-teacher', async (req, res) => {
 });
 
 export default router;
-

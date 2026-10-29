@@ -1,5 +1,9 @@
 import { prisma } from '../lib/prisma.js';
 import { retestRequests } from './retestService.js';
+import { mockAttempts } from './attemptStore.js';
+import { getAttemptDetails } from './teacherService.js';
+
+export { getAttemptDetails };
 
 const MOCK_DEPARTMENTS = [
   { id: 'dept-1', name: 'Computer Science & Engineering', code: 'CSE', teacherCount: 8, studentCount: 120, activeExams: 4, totalAttempts: 95 },
@@ -143,13 +147,14 @@ export async function getDepartmentStudents(department) {
 }
 
 export async function getStudentResultsWithMarks() {
+  let dbResults = [];
   try {
     const attempts = await prisma.examAttempt.findMany({
-      include: { student: true, exam: true },
+      include: { student: true, exam: true, proctorEvents: true },
       orderBy: { startedAt: 'desc' }
     });
     if (attempts.length > 0) {
-      return attempts.map(att => ({
+      dbResults = attempts.map(att => ({
         id: att.id,
         studentName: att.student ? `${att.student.firstName} ${att.student.lastName || ''}`.trim() : 'Student',
         regNo: att.student?.regNo || 'N/A',
@@ -159,14 +164,40 @@ export async function getStudentResultsWithMarks() {
         codingScore: att.codingScore ?? 0,
         totalScore: att.totalScore ?? 0,
         status: att.status,
+        malpractice: Boolean(att.malpractice || att.status === 'MALPRACTICE'),
+        malpracticeType: att.malpracticeType,
         resultVisible: att.resultVisible,
-        submittedAt: att.submittedAt || att.startedAt
+        submittedAt: att.submittedAt || att.startedAt,
+        proctorEventsCount: att.proctorEvents?.length || 0
       }));
     }
   } catch (err) {
     console.warn('DB error in getStudentResultsWithMarks, returning mock results');
   }
-  return MOCK_STUDENT_RESULTS;
+
+  // Merge any in-memory mock attempts
+  const dbIds = new Set(dbResults.map(r => r.id));
+  const fallbackList = Array.from(mockAttempts.values())
+    .filter(a => !dbIds.has(a.id))
+    .map(att => ({
+      id: att.id,
+      studentName: att.studentName || 'Student',
+      regNo: att.regNo || 'CS2026001',
+      department: att.department || 'Computer Science & Engineering',
+      examTitle: att.examTitle || 'Exam',
+      mcqScore: att.mcqScore ?? 0,
+      codingScore: att.codingScore ?? 0,
+      totalScore: att.totalScore ?? 0,
+      status: att.status,
+      malpractice: Boolean(att.malpractice || att.status === 'MALPRACTICE'),
+      malpracticeType: att.malpracticeType,
+      resultVisible: att.resultVisible !== false,
+      submittedAt: att.submittedAt || att.startedAt || new Date(),
+      proctorEventsCount: att.proctorEvents?.length || 0
+    }));
+
+  const all = [...dbResults, ...fallbackList];
+  return all.length > 0 ? all : MOCK_STUDENT_RESULTS;
 }
 
 export async function rejectRetestByAdmin(requestId) {

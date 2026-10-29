@@ -6,7 +6,7 @@ import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/Table';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar, Legend } from 'recharts';
-import { Users, BookOpen, TrendingUp, CheckCircle, RefreshCw, Building2, GraduationCap, ClipboardList, BarChart3, Inbox, ShieldAlert, AlertTriangle } from 'lucide-react';
+import { Users, BookOpen, TrendingUp, CheckCircle, RefreshCw, Building2, GraduationCap, ClipboardList, BarChart3, Inbox, ShieldAlert, AlertTriangle, Eye, X } from 'lucide-react';
 
 type TabType = 'DEPARTMENTS' | 'TEACHERS' | 'STUDENTS' | 'APPROVALS' | 'RESULTS' | 'RETEST_REQUESTS' | 'AUDIT_LOGS' | 'EXTENSION_SECURITY';
 
@@ -34,9 +34,13 @@ export function AdminDashboard() {
   const [selectedDeptTeacher, setSelectedDeptTeacher] = useState<string>('ALL');
   const [selectedDeptStudent, setSelectedDeptStudent] = useState<string>('ALL');
   const [auditSeverityFilter, setAuditSeverityFilter] = useState<string>('ALL');
+  const [resultStatusFilter, setResultStatusFilter] = useState<string>('ALL');
+  const [resultDeptFilter, setResultDeptFilter] = useState<string>('ALL');
 
   const [publishTarget, setPublishTarget] = useState<any | null>(null);
   const [isPublishing, setIsPublishing] = useState(false);
+  const [selectedResultDetails, setSelectedResultDetails] = useState<any | null>(null);
+  const [loadingDetails, setLoadingDetails] = useState(false);
 
   useEffect(() => { loadAllAdminData(); }, []);
 
@@ -110,6 +114,18 @@ export function AdminDashboard() {
       loadAllAdminData();
     } catch (err: any) {
       alert(err.message || 'Failed to reject retest request');
+    }
+  };
+
+  const openResultDetails = async (attemptId: string) => {
+    try {
+      setLoadingDetails(true);
+      const details = await api<any>(`/api/admin/results/${attemptId}`);
+      setSelectedResultDetails(details);
+    } catch (e) {
+      alert('Failed to load result details');
+    } finally {
+      setLoadingDetails(false);
     }
   };
 
@@ -500,38 +516,130 @@ export function AdminDashboard() {
                 </Card>
               </div>
               <Card>
-                <div className="p-4 border-b border-border font-semibold text-slate-900 text-sm">Student Results</div>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Student</TableHead>
-                      <TableHead>Assessment</TableHead>
-                      <TableHead>Score</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Submitted</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {studentResults.slice(0, 20).map((r: any, idx) => (
-                      <TableRow key={r.id || idx}>
-                        <TableCell className="font-medium text-slate-900">{r.studentName || r.student?.name || 'Student'}</TableCell>
-                        <TableCell className="text-slate-600">{r.examTitle || r.exam?.title || '—'}</TableCell>
-                        <TableCell><span className="font-bold text-slate-900">{r.totalScore ?? '—'}</span></TableCell>
-                        <TableCell>
-                          {r.status === 'SUBMITTED' ? <Badge variant="success">Passed</Badge>
-                            : r.status === 'MALPRACTICE' ? <Badge variant="destructive">Terminated</Badge>
-                            : <Badge variant="secondary">Pending</Badge>}
-                        </TableCell>
-                        <TableCell className="text-slate-400 text-sm">
-                          {r.submittedAt ? new Date(r.submittedAt).toLocaleDateString() : '—'}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                    {studentResults.length === 0 && (
-                      <TableRow><TableCell colSpan={5} className="text-center text-slate-400 py-8">No results available.</TableCell></TableRow>
-                    )}
-                  </TableBody>
-                </Table>
+                <div className="p-4 border-b border-border flex items-center justify-between flex-wrap gap-3">
+                  <div>
+                    <h3 className="font-semibold text-slate-900 text-sm">Student Results & Assessments</h3>
+                    <p className="text-xs text-slate-400">Review assessment outcomes, earned scores, and proctoring incidents.</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={resultStatusFilter}
+                      onChange={(e) => setResultStatusFilter(e.target.value)}
+                      className="text-xs border border-border rounded-md px-2.5 py-1.5 bg-surface text-slate-700"
+                    >
+                      <option value="ALL">All Statuses</option>
+                      <option value="SUBMITTED">Completed</option>
+                      <option value="MALPRACTICE">Malpractice</option>
+                    </select>
+                    <select
+                      value={resultDeptFilter}
+                      onChange={(e) => setResultDeptFilter(e.target.value)}
+                      className="text-xs border border-border rounded-md px-2.5 py-1.5 bg-surface text-slate-700"
+                    >
+                      <option value="ALL">All Departments</option>
+                      {departments.map((d: any) => (
+                        <option key={d.id} value={d.name}>{d.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {(() => {
+                  const filtered = studentResults.filter((r) => {
+                    const matchStatus = resultStatusFilter === 'ALL' ||
+                      (resultStatusFilter === 'SUBMITTED' && r.status === 'SUBMITTED') ||
+                      (resultStatusFilter === 'MALPRACTICE' && (r.status === 'MALPRACTICE' || r.malpractice));
+                    const matchDept = resultDeptFilter === 'ALL' || r.department === resultDeptFilter;
+                    return matchStatus && matchDept;
+                  });
+
+                  return (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Student</TableHead>
+                          <TableHead>Reg No</TableHead>
+                          <TableHead>Department</TableHead>
+                          <TableHead>Assessment</TableHead>
+                          <TableHead>MCQ</TableHead>
+                          <TableHead>Coding</TableHead>
+                          <TableHead>Total</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Submitted</TableHead>
+                          <TableHead className="text-right">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {filtered.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={10} className="text-center text-slate-400 py-10">
+                              No assessment results found matching filters.
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          filtered.map((r: any, idx: number) => {
+                            const isMal = r.status === 'MALPRACTICE' || r.malpractice;
+                            return (
+                              <TableRow key={r.id || idx}>
+                                <TableCell className="font-medium text-slate-900">
+                                  {r.studentName || r.student?.name || 'Student'}
+                                </TableCell>
+                                <TableCell>
+                                  <span className="font-mono text-xs font-semibold text-slate-600">
+                                    {r.regNo || r.student?.regNo || '—'}
+                                  </span>
+                                </TableCell>
+                                <TableCell className="text-xs text-slate-500 max-w-[140px] truncate">
+                                  {r.department || 'Computer Science'}
+                                </TableCell>
+                                <TableCell className="text-slate-700 max-w-[180px] truncate">
+                                  {r.examTitle || r.exam?.title || '—'}
+                                </TableCell>
+                                <TableCell className="text-slate-600">{r.mcqScore ?? 0}</TableCell>
+                                <TableCell className="text-slate-600">{r.codingScore ?? 0}</TableCell>
+                                <TableCell>
+                                  <span className={`font-bold ${isMal ? 'text-rose-600' : 'text-slate-900'}`}>
+                                    {r.totalScore ?? 0}
+                                  </span>
+                                </TableCell>
+                                <TableCell>
+                                  {r.status === 'SUBMITTED' ? (
+                                    <Badge variant="success">Completed</Badge>
+                                  ) : isMal ? (
+                                    <div className="flex flex-col items-start gap-0.5">
+                                      <Badge variant="destructive">Terminated</Badge>
+                                      {r.malpracticeType && (
+                                        <span className="text-[10px] font-mono font-semibold text-rose-500">
+                                          {r.malpracticeType}
+                                        </span>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <Badge variant="secondary">In Progress</Badge>
+                                  )}
+                                </TableCell>
+                                <TableCell className="text-slate-400 text-xs">
+                                  {r.submittedAt ? new Date(r.submittedAt).toLocaleDateString() : '—'}
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => openResultDetails(r.id)}
+                                    className="hover:bg-primary/5 hover:text-primary"
+                                  >
+                                    <Eye className="h-3.5 w-3.5 mr-1" />
+                                    View Details
+                                  </Button>
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })
+                        )}
+                      </TableBody>
+                    </Table>
+                  );
+                })()}
               </Card>
             </div>
           )}
@@ -660,6 +768,190 @@ export function AdminDashboard() {
                   <CheckCircle className="h-4 w-4 mr-2" />
                   {isPublishing ? 'Publishing...' : 'Confirm & Publish'}
                 </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Admin Result & Integrity Details Modal */}
+      {selectedResultDetails && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <Card className="max-w-2xl w-full max-h-[85vh] overflow-y-auto shadow-2xl border-border">
+            <CardHeader className="flex flex-row items-center justify-between sticky top-0 bg-surface border-b border-border z-10 p-5">
+              <div>
+                <CardTitle className="text-xl">Assessment Submission & Integrity Report</CardTitle>
+                <CardDescription>
+                  {selectedResultDetails.examTitle} &bull; {selectedResultDetails.department}
+                </CardDescription>
+              </div>
+              <Button variant="ghost" size="icon" onClick={() => setSelectedResultDetails(null)}>
+                <X className="h-5 w-5" />
+              </Button>
+            </CardHeader>
+
+            <CardContent className="p-6 space-y-5">
+              {/* Malpractice Notice & Admin Actions */}
+              {(selectedResultDetails.malpractice || selectedResultDetails.status === 'MALPRACTICE') ? (
+                <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 text-rose-900 space-y-3">
+                  <div className="flex items-center gap-2 font-bold text-base text-rose-700">
+                    <AlertTriangle className="h-5 w-5" />
+                    <span>Malpractice Integrity Violation Detected</span>
+                  </div>
+                  <div className="text-sm text-rose-800">
+                    <strong>Violation Flag:</strong> <span className="font-mono font-bold">{selectedResultDetails.malpracticeType || 'SECURITY_POLICY_VIOLATION'}</span>
+                  </div>
+                  <p className="text-xs text-rose-700 m-0">
+                    The candidate's assessment was forcibly terminated due to browser/system security violations. A full audit log was automatically recorded.
+                  </p>
+
+                  {/* Administrative Retest Approval Section */}
+                  {(() => {
+                    const matchedRetest = retestRequests.find(r => r.studentId === selectedResultDetails.studentId || r.regNo === selectedResultDetails.regNo || r.examId === selectedResultDetails.examId);
+                    if (matchedRetest) {
+                      if (matchedRetest.status === 'RESET_BY_TEACHER') {
+                        return (
+                          <div className="pt-2 border-t border-rose-200 text-xs font-semibold text-emerald-700">
+                            ✓ Retest approved and reset completed by teacher. Candidate can retake exam.
+                          </div>
+                        );
+                      } else if (matchedRetest.status === 'APPROVED_BY_ADMIN') {
+                        return (
+                          <div className="pt-2 border-t border-rose-200 text-xs font-semibold text-amber-700">
+                            ⏳ Retest approved by Admin. Awaiting course teacher to reset attempt.
+                          </div>
+                        );
+                      } else {
+                        return (
+                          <div className="pt-2 border-t border-rose-200 space-y-2">
+                            <div className="text-xs text-slate-700">
+                              <span className="font-bold">Candidate Appeal Reason:</span> "{matchedRetest.reason}"
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Button size="sm" onClick={() => handleApproveRetest(matchedRetest.id)}>
+                                <CheckCircle className="h-4 w-4 mr-1.5" /> Approve Retest Appeal
+                              </Button>
+                              <Button size="sm" variant="outline" className="text-rose-600 border-rose-300" onClick={() => handleRejectRetest(matchedRetest.id)}>
+                                Reject
+                              </Button>
+                            </div>
+                          </div>
+                        );
+                      }
+                    }
+                    return null;
+                  })()}
+                </div>
+              ) : (
+                <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3.5 text-emerald-800 text-xs font-medium flex items-center gap-2">
+                  <CheckCircle className="h-4 w-4 text-emerald-600 shrink-0" />
+                  <span>Candidate completed the assessment normally. All integrity standards verified.</span>
+                </div>
+              )}
+
+              {/* Candidate Info Grid */}
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  { label: 'Candidate Name', value: selectedResultDetails.studentName },
+                  { label: 'Register No', value: selectedResultDetails.regNo },
+                  { label: 'Department', value: selectedResultDetails.department },
+                  { label: 'Status', value: selectedResultDetails.status },
+                  { label: 'MCQ Marks', value: `${selectedResultDetails.mcqScore ?? 0} / ${selectedResultDetails.maxMcqMarks ?? 5}` },
+                  { label: 'Coding Marks', value: `${selectedResultDetails.codingScore ?? 0} / ${selectedResultDetails.maxCodingMarks ?? 15}` },
+                ].map((item) => (
+                  <div key={item.label} className="bg-slate-50 border border-border rounded-lg p-3">
+                    <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">{item.label}</div>
+                    <div className="text-sm font-semibold text-slate-900">{String(item.value)}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Overall Score Banner */}
+              <div className="bg-slate-50 border border-border rounded-xl p-4 flex items-center justify-between">
+                <div>
+                  <div className="text-xs font-bold text-slate-400 uppercase">Total Marks Earned</div>
+                  <div className="text-2xl font-black text-slate-900 mt-1">
+                    {selectedResultDetails.totalScore ?? 0}
+                    <span className="text-xs font-medium text-slate-400"> / {selectedResultDetails.totalMarks ?? 20}</span>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-xs font-bold text-slate-400 uppercase">Accuracy</div>
+                  <div className="text-2xl font-black text-primary mt-1">
+                    {selectedResultDetails.percentage ?? 0}%
+                  </div>
+                </div>
+              </div>
+
+              {/* MCQ Breakdown */}
+              {selectedResultDetails.questionBreakdown && selectedResultDetails.questionBreakdown.length > 0 && (
+                <div>
+                  <h4 className="font-semibold text-slate-900 text-sm mb-2">Multiple Choice Questions Breakdown</h4>
+                  <div className="border border-border rounded-lg divide-y divide-border overflow-hidden">
+                    {selectedResultDetails.questionBreakdown.map((q: any, idx: number) => (
+                      <div key={idx} className="p-3 bg-white text-sm flex items-start justify-between gap-3">
+                        <div className="flex-1">
+                          <div className="font-medium text-slate-900 mb-1">Q{q.sequence || idx + 1}: {q.question}</div>
+                          <div className="text-xs text-slate-500">
+                            Candidate's Answer: <span className={q.passed ? 'font-semibold text-emerald-600' : 'font-semibold text-rose-500'}>{q.selectedAnswer || 'Not Answered'}</span>
+                          </div>
+                          {!q.passed && q.correctAnswer && (
+                            <div className="text-xs text-slate-400 mt-0.5">
+                              Correct Answer: <span className="font-semibold text-slate-700">{q.correctAnswer}</span>
+                            </div>
+                          )}
+                        </div>
+                        <div className="text-right shrink-0">
+                          <Badge variant={q.passed ? 'success' : 'destructive'} className="text-[10px]">
+                            {q.score} / {q.marks} pts
+                          </Badge>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Coding Breakdown */}
+              {selectedResultDetails.codingBreakdown && selectedResultDetails.codingBreakdown.length > 0 && (
+                <div>
+                  <h4 className="font-semibold text-slate-900 text-sm mb-2">Coding Challenges Breakdown</h4>
+                  <div className="border border-border rounded-lg divide-y divide-border overflow-hidden">
+                    {selectedResultDetails.codingBreakdown.map((c: any, idx: number) => (
+                      <div key={idx} className="p-3 bg-white text-sm flex items-center justify-between gap-3">
+                        <div>
+                          <div className="font-medium text-slate-900">{c.title}</div>
+                          <div className="text-xs text-slate-400">
+                            Passed Cases: {c.passedCases}/{c.totalCases} &bull; Status: <span className="font-mono text-slate-600">{c.status}</span>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <span className="font-bold text-slate-900 text-sm">{c.score}</span>
+                          <span className="text-xs text-slate-400"> / {c.maxMarks} pts</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Proctoring Events */}
+              {selectedResultDetails.proctorEvents && selectedResultDetails.proctorEvents.length > 0 && (
+                <div>
+                  <h4 className="font-semibold text-slate-900 text-sm mb-2">Recorded Proctoring Incidents</h4>
+                  <div className="bg-slate-50 border border-border rounded-lg p-3 text-xs space-y-1.5 max-h-36 overflow-y-auto font-mono">
+                    {selectedResultDetails.proctorEvents.map((pe: any, idx: number) => (
+                      <div key={idx} className="flex items-center justify-between text-slate-700">
+                        <span className="font-bold text-rose-600">{pe.type}</span>
+                        <span className="text-slate-400">{pe.createdAt ? new Date(pe.createdAt).toLocaleTimeString() : 'Recorded'}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-end pt-3 border-t border-border">
+                <Button variant="outline" onClick={() => setSelectedResultDetails(null)}>Close</Button>
               </div>
             </CardContent>
           </Card>

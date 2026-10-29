@@ -6,7 +6,7 @@ import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/Table';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts';
-import { Code2, FileText, Clock, Calendar as CalendarIcon, TrendingUp, Target, Award, PlayCircle, AlertCircle, ShieldAlert, BookOpen } from 'lucide-react';
+import { Code2, FileText, Clock, Calendar as CalendarIcon, TrendingUp, Target, Award, PlayCircle, AlertCircle, ShieldAlert, BookOpen, CheckCircle, XCircle, X, RefreshCw, Eye, AlertTriangle } from 'lucide-react';
 
 type Exam = {
   id: string;
@@ -35,6 +35,12 @@ const DEFAULT_MANUAL_EXAM: Exam = {
 export function StudentDashboard() {
   const [exams, setExams] = useState<Exam[]>([]);
   const [myAttempts, setMyAttempts] = useState<any[]>([]);
+  const [retestRequests, setRetestRequests] = useState<any[]>([]);
+  const [selectedAttemptDetails, setSelectedAttemptDetails] = useState<any | null>(null);
+  const [loadingDetails, setLoadingDetails] = useState(false);
+  const [retestReason, setRetestReason] = useState('');
+  const [submittingRetest, setSubmittingRetest] = useState(false);
+  const [retestSuccessMsg, setRetestSuccessMsg] = useState('');
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<any>(null);
   
@@ -54,13 +60,57 @@ export function StudentDashboard() {
       const data = await api<Exam[]>('/api/exams');
       setExams(data.filter((e) => ['ACTIVE', 'PUBLISHED'].includes(e.status)));
       const studentUser = localStorage.getItem('seep_user');
-      const sid = studentUser ? JSON.parse(studentUser).id : '';
-      const attempts = await api<any[]>(`/api/attempts?studentId=${sid}`).catch(() => []);
+      const sid = studentUser ? JSON.parse(studentUser).id : 'student-1';
+      const [attempts, retests] = await Promise.all([
+        api<any[]>(`/api/attempts?studentId=${sid}`).catch(() => []),
+        api<any[]>(`/api/attempts/retest-requests/student/${sid}`).catch(() => [])
+      ]);
       setMyAttempts(Array.isArray(attempts) ? attempts : []);
+      setRetestRequests(Array.isArray(retests) ? retests : []);
     } catch (err) {
       console.error('Failed to load dashboard data', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const openAttemptResult = async (attemptId: string) => {
+    try {
+      setLoadingDetails(true);
+      const details = await api<any>(`/api/attempts/${attemptId}/result`);
+      setSelectedAttemptDetails(details);
+      setRetestSuccessMsg('');
+      setRetestReason('');
+    } catch (err) {
+      alert('Failed to load attempt details');
+    } finally {
+      setLoadingDetails(false);
+    }
+  };
+
+  const handleRetestSubmit = async (examId: string) => {
+    if (!retestReason.trim()) return;
+    try {
+      setSubmittingRetest(true);
+      const studentUser = localStorage.getItem('seep_user');
+      const u = studentUser ? JSON.parse(studentUser) : {};
+      await api('/api/attempts/retest-request', {
+        method: 'POST',
+        body: JSON.stringify({
+          examId,
+          studentId: u.id || 'student-1',
+          studentName: `${u.firstName || 'Student'} ${u.lastName || ''}`.trim(),
+          regNo: u.regNo || 'CS2026001',
+          reason: retestReason
+        })
+      });
+      setRetestSuccessMsg('Retest appeal submitted successfully to Admin & Teacher!');
+      setRetestReason('');
+      loadData();
+    } catch (err) {
+      alert('Failed to submit retest request');
+    } finally {
+      setSubmittingRetest(false);
     }
   };
 
@@ -294,8 +344,8 @@ export function StudentDashboard() {
   const renderResults = () => (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold text-slate-900">Recent Results</h2>
-        <p className="text-slate-400 mt-1 text-sm">Review your past submissions and scores.</p>
+        <h2 className="text-2xl font-bold text-slate-900">Assessment History & Results</h2>
+        <p className="text-slate-400 mt-1 text-sm">Review your completed submissions, scores, and proctoring reports.</p>
       </div>
 
       <Card>
@@ -317,37 +367,52 @@ export function StudentDashboard() {
                 </TableCell>
               </TableRow>
             ) : (
-              myAttempts.map((att) => (
-                <TableRow key={att.id}>
-                  <TableCell className="font-medium text-slate-900">
-                    {att.exam?.title || 'Examination'}
-                  </TableCell>
-                  <TableCell className="text-slate-600">
-                    {att.submittedAt ? new Date(att.submittedAt).toLocaleDateString() : 'In Progress'}
-                  </TableCell>
-                  <TableCell>
-                    {att.status === 'SUBMITTED' ? (
-                      <Badge variant="success">Completed</Badge>
-                    ) : att.status === 'MALPRACTICE' ? (
-                      <Badge variant="destructive">Terminated</Badge>
-                    ) : (
-                      <Badge variant="warning">Pending</Badge>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    {att.resultVisible ? (
-                      <span className="font-bold text-emerald-500">{att.totalScore} pts</span>
-                    ) : (
-                      <span className="text-slate-400 text-sm">—</span>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <Button variant="outline" size="sm" onClick={() => handleStartExam(att.examId || att.exam?.id)}>
-                      Review
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))
+              myAttempts.map((att) => {
+                const isMal = att.status === 'MALPRACTICE' || att.malpractice;
+                return (
+                  <TableRow key={att.id}>
+                    <TableCell className="font-medium text-slate-900">
+                      <div>{att.exam?.title || att.examTitle || 'Examination'}</div>
+                      <div className="text-xs text-slate-400">{att.exam?.subject || 'Assessment'}</div>
+                    </TableCell>
+                    <TableCell className="text-slate-600 text-sm">
+                      {att.submittedAt ? new Date(att.submittedAt).toLocaleDateString() : 'In Progress'}
+                    </TableCell>
+                    <TableCell>
+                      {att.status === 'SUBMITTED' ? (
+                        <Badge variant="success">Completed</Badge>
+                      ) : isMal ? (
+                        <div className="flex flex-col items-start gap-1">
+                          <Badge variant="destructive">Terminated</Badge>
+                          {att.malpracticeType && (
+                            <span className="text-[11px] font-mono text-rose-500 font-medium">
+                              {att.malpracticeType}
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <Badge variant="warning">In Progress</Badge>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <span className={`font-bold ${isMal ? 'text-rose-500' : 'text-emerald-500'}`}>
+                        {att.totalScore ?? 0} pts
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => openAttemptResult(att.id)}
+                        className="hover:bg-primary/5 hover:text-primary"
+                      >
+                        <Eye className="h-3.5 w-3.5 mr-1.5" />
+                        View Result
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                );
+              })
             )}
           </TableBody>
         </Table>
@@ -412,6 +477,203 @@ export function StudentDashboard() {
       {activeTab === 'my-exams' && renderAvailableExams()}
       {activeTab === 'results' && renderResults()}
       {activeTab === 'security' && renderSecurity()}
+
+      {/* Result Details Inspection Modal for Student */}
+      {selectedAttemptDetails && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <Card className="max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl border-border">
+            <CardHeader className="flex flex-row items-center justify-between sticky top-0 bg-surface border-b border-border z-10 p-5">
+              <div>
+                <CardTitle className="text-xl">
+                  {selectedAttemptDetails.examTitle || 'Assessment Result'}
+                </CardTitle>
+                <CardDescription>
+                  {selectedAttemptDetails.subject} &bull; Reg No: {selectedAttemptDetails.regNo}
+                </CardDescription>
+              </div>
+              <Button variant="ghost" size="icon" onClick={() => setSelectedAttemptDetails(null)}>
+                <X className="h-5 w-5" />
+              </Button>
+            </CardHeader>
+
+            <CardContent className="p-6 space-y-5">
+              {/* Malpractice Notice */}
+              {selectedAttemptDetails.malpractice || selectedAttemptDetails.status === 'MALPRACTICE' ? (
+                <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 text-rose-900 space-y-3">
+                  <div className="flex items-center gap-2 font-bold text-base text-rose-700">
+                    <AlertTriangle className="h-5 w-5" />
+                    <span>Assessment Terminated: Malpractice Detected</span>
+                  </div>
+                  <div className="text-sm text-rose-800">
+                    <strong>Violation Reason:</strong> {selectedAttemptDetails.malpracticeType || 'Proctoring Security Policy Violation'}
+                  </div>
+                  <p className="text-xs text-rose-700 leading-relaxed m-0">
+                    This attempt was locked by the proctoring engine. The incident report and your earned marks have been submitted to your Course Teacher and Institution Administrator.
+                  </p>
+
+                  {/* Retest Status or Action */}
+                  <div className="pt-2 border-t border-rose-200/80">
+                    {(() => {
+                      const matchedRetest = retestRequests.find(r => r.examId === selectedAttemptDetails.examId);
+                      if (matchedRetest) {
+                        if (matchedRetest.status === 'RESET_BY_TEACHER') {
+                          return (
+                            <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-emerald-800 flex items-center justify-between gap-3">
+                              <span className="text-xs font-semibold">✓ Test reset by teacher! You can retake this assessment now.</span>
+                              <Button size="sm" onClick={() => handleStartExam(selectedAttemptDetails.examId)}>
+                                Retake Exam
+                              </Button>
+                            </div>
+                          );
+                        } else if (matchedRetest.status === 'APPROVED_BY_ADMIN') {
+                          return (
+                            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-amber-800 text-xs font-semibold">
+                              ⏳ Retest approved by Admin! Waiting for Course Teacher to reset test attempt.
+                            </div>
+                          );
+                        } else {
+                          return (
+                            <div className="bg-slate-100 border border-slate-200 rounded-lg p-3 text-slate-700 text-xs font-semibold">
+                              ⏳ Retest appeal submitted. Pending Administrator review.
+                            </div>
+                          );
+                        }
+                      }
+
+                      if (retestSuccessMsg) {
+                        return (
+                          <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-emerald-800 text-xs font-semibold">
+                            ✓ {retestSuccessMsg}
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div className="space-y-2 mt-2">
+                          <div className="text-xs font-bold text-slate-800">Appeal & Retest Request:</div>
+                          <textarea
+                            value={retestReason}
+                            onChange={(e) => setRetestReason(e.target.value)}
+                            placeholder="Explain the incident (e.g. accidental keypress, external browser popup, hardware issue)..."
+                            rows={2}
+                            className="w-full text-xs p-2.5 rounded-md border border-slate-300 focus:outline-none focus:ring-1 focus:ring-primary bg-white"
+                          />
+                          <Button
+                            size="sm"
+                            disabled={submittingRetest || !retestReason.trim()}
+                            onClick={() => handleRetestSubmit(selectedAttemptDetails.examId)}
+                          >
+                            {submittingRetest ? 'Submitting...' : 'Submit Retest Appeal to Admin & Teacher'}
+                          </Button>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3.5 text-emerald-800 text-xs font-medium flex items-center gap-2">
+                  <CheckCircle className="h-4 w-4 text-emerald-600 shrink-0" />
+                  <span>Assessment submitted successfully. Score and questions breakdown delivered to your Teacher & Administrator.</span>
+                </div>
+              )}
+
+              {/* Scorecard Grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="bg-slate-50 border border-border rounded-lg p-3 text-center">
+                  <div className="text-xs font-bold text-slate-400 uppercase">Total Score</div>
+                  <div className="text-2xl font-black text-slate-900 mt-1">
+                    {selectedAttemptDetails.totalScore ?? 0}
+                    <span className="text-xs font-medium text-slate-400"> / {selectedAttemptDetails.totalMarks ?? 20}</span>
+                  </div>
+                </div>
+                <div className="bg-slate-50 border border-border rounded-lg p-3 text-center">
+                  <div className="text-xs font-bold text-slate-400 uppercase">Accuracy</div>
+                  <div className="text-2xl font-black text-primary mt-1">
+                    {selectedAttemptDetails.percentage ?? 0}%
+                  </div>
+                </div>
+                <div className="bg-slate-50 border border-border rounded-lg p-3 text-center">
+                  <div className="text-xs font-bold text-slate-400 uppercase">MCQ Score</div>
+                  <div className="text-2xl font-black text-slate-900 mt-1">
+                    {selectedAttemptDetails.mcqScore ?? 0}
+                    <span className="text-xs font-medium text-slate-400"> / {selectedAttemptDetails.maxMcqMarks ?? 5}</span>
+                  </div>
+                </div>
+                <div className="bg-slate-50 border border-border rounded-lg p-3 text-center">
+                  <div className="text-xs font-bold text-slate-400 uppercase">Coding Score</div>
+                  <div className="text-2xl font-black text-slate-900 mt-1">
+                    {selectedAttemptDetails.codingScore ?? 0}
+                    <span className="text-xs font-medium text-slate-400"> / {selectedAttemptDetails.maxCodingMarks ?? 15}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* MCQ Question Breakdown */}
+              {selectedAttemptDetails.questionBreakdown && selectedAttemptDetails.questionBreakdown.length > 0 && (
+                <div>
+                  <h4 className="font-bold text-slate-900 text-sm mb-2.5">Multiple Choice Questions</h4>
+                  <div className="border border-border rounded-lg divide-y divide-border overflow-hidden">
+                    {selectedAttemptDetails.questionBreakdown.map((q: any, idx: number) => (
+                      <div key={idx} className="p-3 text-sm bg-white hover:bg-slate-50 flex items-start justify-between gap-3">
+                        <div className="flex-1">
+                          <div className="font-medium text-slate-900 mb-1">
+                            Q{q.sequence || idx + 1}: {q.question}
+                          </div>
+                          <div className="text-xs text-slate-500">
+                            Your Answer:{' '}
+                            <span className={q.passed ? 'font-semibold text-emerald-600' : 'font-semibold text-rose-500'}>
+                              {q.selectedAnswer || 'Not Answered'}
+                            </span>
+                          </div>
+                          {!q.passed && q.correctAnswer && (
+                            <div className="text-xs text-slate-400 mt-0.5">
+                              Correct: <span className="font-semibold text-slate-700">{q.correctAnswer}</span>
+                            </div>
+                          )}
+                        </div>
+                        <div className="text-right shrink-0">
+                          <Badge variant={q.passed ? 'success' : 'destructive'} className="text-[10px]">
+                            {q.score ?? 0} / {q.marks ?? 1} pts
+                          </Badge>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Coding Breakdown */}
+              {selectedAttemptDetails.codingBreakdown && selectedAttemptDetails.codingBreakdown.length > 0 && (
+                <div>
+                  <h4 className="font-bold text-slate-900 text-sm mb-2.5">Coding Challenges</h4>
+                  <div className="border border-border rounded-lg divide-y divide-border overflow-hidden">
+                    {selectedAttemptDetails.codingBreakdown.map((c: any, idx: number) => (
+                      <div key={idx} className="p-3 text-sm bg-white flex items-center justify-between gap-3">
+                        <div>
+                          <div className="font-semibold text-slate-900">{c.title}</div>
+                          <div className="text-xs text-slate-400">
+                            Status: <span className="font-mono text-slate-600">{c.status}</span> &bull; Passed Cases: {c.passedCases}/{c.totalCases}
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <span className="font-bold text-slate-900 text-sm">{c.score}</span>
+                          <span className="text-xs text-slate-400"> / {c.maxMarks} pts</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-end pt-3 border-t border-border">
+                <Button variant="outline" onClick={() => setSelectedAttemptDetails(null)}>
+                  Close
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }

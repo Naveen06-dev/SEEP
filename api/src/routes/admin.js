@@ -5,6 +5,7 @@ import {
   getDepartmentTeachers,
   getDepartmentStudents,
   getStudentResultsWithMarks,
+  getAttemptDetails,
   rejectRetestByAdmin,
   getOverviewStats,
   getAuditLogs,
@@ -79,6 +80,15 @@ router.get('/results', async (req, res) => {
     res.json(results);
   } catch (e) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+router.get('/results/:attemptId', async (req, res) => {
+  try {
+    const details = await getAttemptDetails(req.params.attemptId);
+    res.json(details);
+  } catch (e) {
+    res.status(404).json({ error: e.message });
   }
 });
 

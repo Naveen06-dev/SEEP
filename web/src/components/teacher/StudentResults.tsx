@@ -15,6 +15,8 @@ type AttemptResult = {
   codingScore: number;
   totalScore: number;
   status: string;
+  malpractice?: boolean;
+  malpracticeType?: string;
   resultVisible: boolean;
   startedAt: string;
   submittedAt?: string;
@@ -99,14 +101,14 @@ export function StudentResults() {
       {/* Summary Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { label: 'Total Submissions', value: results.length },
-          { label: 'Published Results', value: results.filter(r => r.resultVisible).length },
-          { label: 'Submitted', value: results.filter(r => r.status === 'SUBMITTED').length },
-          { label: 'Retest Requests', value: pendingRetests.length },
+          { label: 'Total Submissions', value: results.length, color: 'text-slate-900' },
+          { label: 'Malpractice Cases', value: results.filter(r => r.status === 'MALPRACTICE' || r.malpractice).length, color: 'text-rose-600' },
+          { label: 'Completed Tests', value: results.filter(r => r.status === 'SUBMITTED').length, color: 'text-emerald-600' },
+          { label: 'Retest Requests', value: pendingRetests.length, color: 'text-amber-600' },
         ].map((stat) => (
           <Card key={stat.label}>
             <CardContent className="p-5">
-              <div className="text-2xl font-bold text-slate-900">{loading ? '—' : stat.value}</div>
+              <div className={`text-2xl font-bold ${stat.color}`}>{loading ? '—' : stat.value}</div>
               <div className="text-xs text-slate-400 mt-1">{stat.label}</div>
             </CardContent>
           </Card>
@@ -161,62 +163,72 @@ export function StudentResults() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  results.map((r) => (
-                    <TableRow key={r.id}>
-                      <TableCell className="font-medium text-slate-900">{r.studentName}</TableCell>
-                      <TableCell>
-                        <span className="font-mono text-xs font-bold text-emerald-500">{r.regNo}</span>
-                      </TableCell>
-                      <TableCell className="text-slate-600 max-w-[200px] truncate">{r.examTitle}</TableCell>
-                      <TableCell className="text-slate-600">{r.mcqScore ?? '—'}</TableCell>
-                      <TableCell className="text-slate-600">{r.codingScore ?? '—'}</TableCell>
-                      <TableCell>
-                        <span className="font-bold text-slate-900">{r.totalScore ?? '—'}</span>
-                      </TableCell>
-                      <TableCell>
-                        {r.status === 'SUBMITTED' ? (
-                          <Badge variant="success">Submitted</Badge>
-                        ) : r.status === 'MALPRACTICE' ? (
-                          <Badge variant="destructive">Terminated</Badge>
-                        ) : (
-                          <Badge variant="outline">In Progress</Badge>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {r.resultVisible ? (
-                          <Badge variant="info" className="bg-info/10 text-info border-info/20">Published</Badge>
-                        ) : (
-                          <Badge variant="outline" className="text-slate-400">Hidden</Badge>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-1.5">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8"
-                            title={r.resultVisible ? 'Hide Result' : 'Publish Result'}
-                            onClick={() => handleToggleVisibility(r.id, r.resultVisible)}
-                          >
-                            {r.resultVisible ? (
-                              <EyeOff className="h-4 w-4 text-slate-400" />
-                            ) : (
-                              <Eye className="h-4 w-4 text-primary" />
-                            )}
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8"
-                            title="View Details"
-                            onClick={() => openAttemptDetails(r.id)}
-                          >
-                            <ChevronRight className="h-4 w-4 text-slate-400" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))
+                  results.map((r) => {
+                    const isMal = r.status === 'MALPRACTICE' || r.malpractice;
+                    return (
+                      <TableRow key={r.id}>
+                        <TableCell className="font-medium text-slate-900">{r.studentName}</TableCell>
+                        <TableCell>
+                          <span className="font-mono text-xs font-bold text-slate-700">{r.regNo}</span>
+                        </TableCell>
+                        <TableCell className="text-slate-600 max-w-[200px] truncate">{r.examTitle}</TableCell>
+                        <TableCell className="text-slate-600">{r.mcqScore ?? 0}</TableCell>
+                        <TableCell className="text-slate-600">{r.codingScore ?? 0}</TableCell>
+                        <TableCell>
+                          <span className={`font-bold ${isMal ? 'text-rose-600' : 'text-slate-900'}`}>{r.totalScore ?? 0}</span>
+                        </TableCell>
+                        <TableCell>
+                          {r.status === 'SUBMITTED' ? (
+                            <Badge variant="success">Completed</Badge>
+                          ) : isMal ? (
+                            <div className="flex flex-col items-start gap-0.5">
+                              <Badge variant="destructive">Terminated</Badge>
+                              {r.malpracticeType && (
+                                <span className="text-[10px] font-mono font-semibold text-rose-500">
+                                  {r.malpracticeType}
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <Badge variant="outline">In Progress</Badge>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {r.resultVisible ? (
+                            <Badge variant="info" className="bg-info/10 text-info border-info/20">Published</Badge>
+                          ) : (
+                            <Badge variant="outline" className="text-slate-400">Hidden</Badge>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8"
+                              title={r.resultVisible ? 'Hide Result' : 'Publish Result'}
+                              onClick={() => handleToggleVisibility(r.id, r.resultVisible)}
+                            >
+                              {r.resultVisible ? (
+                                <EyeOff className="h-4 w-4 text-slate-400" />
+                              ) : (
+                                <Eye className="h-4 w-4 text-primary" />
+                              )}
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8"
+                              title="View Details"
+                              onClick={() => openAttemptDetails(r.id)}
+                            >
+                              <ChevronRight className="h-4 w-4 text-slate-400" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
                 )}
               </TableBody>
             </Table>
@@ -266,22 +278,50 @@ export function StudentResults() {
           <Card className="max-w-2xl w-full max-h-[85vh] overflow-y-auto shadow-2xl">
             <CardHeader className="flex flex-row items-center justify-between sticky top-0 bg-surface border-b border-border z-10">
               <div>
-                <CardTitle>Submission Details</CardTitle>
-                <CardDescription>{selectedAttempt.exam?.title || selectedAttempt.examTitle}</CardDescription>
+                <CardTitle>Assessment Submission Details</CardTitle>
+                <CardDescription>{selectedAttempt.examTitle || selectedAttempt.exam?.title}</CardDescription>
               </div>
               <Button variant="ghost" size="icon" onClick={() => setSelectedAttempt(null)}>
                 <X className="h-5 w-5" />
               </Button>
             </CardHeader>
             <CardContent className="p-6 space-y-5">
+              {/* Malpractice Banner if flagged */}
+              {(selectedAttempt.malpractice || selectedAttempt.status === 'MALPRACTICE') && (
+                <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 text-rose-900 space-y-2">
+                  <div className="flex items-center gap-2 font-bold text-base text-rose-700">
+                    <span>⛔ Malpractice Violation Detected:</span>
+                    <span className="font-mono text-sm underline">{selectedAttempt.malpracticeType || 'PROCTORING_VIOLATION'}</span>
+                  </div>
+                  <p className="text-xs text-rose-700 m-0">
+                    Candidate was terminated by the proctoring monitor during the exam session. All incident events have been logged.
+                  </p>
+                  {/* Action for Teacher to Reset if Retest Approved */}
+                  {(() => {
+                    const matchedRetest = pendingRetests.find(r => r.studentId === selectedAttempt.studentId || r.regNo === selectedAttempt.regNo);
+                    if (matchedRetest) {
+                      return (
+                        <div className="pt-2 border-t border-rose-200 flex items-center justify-between">
+                          <span className="text-xs font-semibold text-rose-800">Admin Approved Retest for this candidate.</span>
+                          <Button size="sm" onClick={() => handleResetTestByTeacher(matchedRetest.id)}>
+                            <RefreshCw className="h-4 w-4 mr-1.5" /> Reset Attempt Now
+                          </Button>
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
+                </div>
+              )}
+
               {/* Candidate Info */}
               <div className="grid grid-cols-2 gap-4">
                 {[
-                  { label: 'Student Name', value: selectedAttempt.studentName },
-                  { label: 'Register No', value: selectedAttempt.regNo },
-                  { label: 'MCQ Score', value: selectedAttempt.mcqScore ?? '—' },
-                  { label: 'Coding Score', value: selectedAttempt.codingScore ?? '—' },
-                  { label: 'Total Score', value: selectedAttempt.totalScore ?? '—' },
+                  { label: 'Student Name', value: selectedAttempt.studentName || 'Student' },
+                  { label: 'Register No', value: selectedAttempt.regNo || 'N/A' },
+                  { label: 'MCQ Score', value: `${selectedAttempt.mcqScore ?? 0} / ${selectedAttempt.maxMcqMarks ?? 5}` },
+                  { label: 'Coding Score', value: `${selectedAttempt.codingScore ?? 0} / ${selectedAttempt.maxCodingMarks ?? 15}` },
+                  { label: 'Total Score', value: `${selectedAttempt.totalScore ?? 0} / ${selectedAttempt.totalMarks ?? 20}` },
                   { label: 'Status', value: selectedAttempt.status },
                 ].map((item) => (
                   <div key={item.label} className="bg-slate-50 border border-border rounded-lg p-3">
@@ -292,33 +332,69 @@ export function StudentResults() {
               </div>
 
               {/* Question Breakdown */}
-              {selectedAttempt.questionBreakdown?.length > 0 && (
+              {selectedAttempt.questionBreakdown && selectedAttempt.questionBreakdown.length > 0 && (
                 <div>
-                  <h4 className="font-semibold text-slate-900 mb-3">Question Breakdown</h4>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Question</TableHead>
-                        <TableHead>Score</TableHead>
-                        <TableHead>Result</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {selectedAttempt.questionBreakdown.map((q: any, idx: number) => (
-                        <TableRow key={idx}>
-                          <TableCell className="font-medium text-slate-900">Q{idx + 1}</TableCell>
-                          <TableCell className="text-slate-600">{q.score ?? '—'}</TableCell>
-                          <TableCell>
-                            {q.passed ? (
-                              <CheckCircle className="h-4 w-4 text-emerald-500" />
-                            ) : (
-                              <XCircle className="h-4 w-4 text-rose-500" />
-                            )}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+                  <h4 className="font-semibold text-slate-900 mb-3">MCQ Question Breakdown</h4>
+                  <div className="border border-border rounded-lg divide-y divide-border overflow-hidden">
+                    {selectedAttempt.questionBreakdown.map((q: any, idx: number) => (
+                      <div key={idx} className="p-3 bg-white text-sm flex items-start justify-between gap-3">
+                        <div className="flex-1">
+                          <div className="font-medium text-slate-900 mb-1">Q{q.sequence || idx + 1}: {q.question}</div>
+                          <div className="text-xs text-slate-500">
+                            Candidate's Answer: <span className={q.passed ? 'font-semibold text-emerald-600' : 'font-semibold text-rose-500'}>{q.selectedAnswer || 'Not Answered'}</span>
+                          </div>
+                          {!q.passed && q.correctAnswer && (
+                            <div className="text-xs text-slate-400 mt-0.5">
+                              Correct Answer: <span className="font-semibold text-slate-700">{q.correctAnswer}</span>
+                            </div>
+                          )}
+                        </div>
+                        <div className="text-right shrink-0">
+                          <Badge variant={q.passed ? 'success' : 'destructive'} className="text-[10px]">
+                            {q.score} / {q.marks} pts
+                          </Badge>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Coding Challenges Breakdown */}
+              {selectedAttempt.codingBreakdown && selectedAttempt.codingBreakdown.length > 0 && (
+                <div>
+                  <h4 className="font-semibold text-slate-900 mb-3">Coding Challenges</h4>
+                  <div className="border border-border rounded-lg divide-y divide-border overflow-hidden">
+                    {selectedAttempt.codingBreakdown.map((c: any, idx: number) => (
+                      <div key={idx} className="p-3 bg-white text-sm flex items-center justify-between gap-3">
+                        <div>
+                          <div className="font-medium text-slate-900">{c.title}</div>
+                          <div className="text-xs text-slate-400">
+                            Passed Cases: {c.passedCases}/{c.totalCases} &bull; Status: <span className="font-mono text-slate-600">{c.status}</span>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <span className="font-bold text-slate-900 text-sm">{c.score}</span>
+                          <span className="text-xs text-slate-400"> / {c.maxMarks} pts</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Proctor Events Log */}
+              {selectedAttempt.proctorEvents && selectedAttempt.proctorEvents.length > 0 && (
+                <div>
+                  <h4 className="font-semibold text-slate-900 mb-2">Proctoring Telemetry Events</h4>
+                  <div className="bg-slate-50 border border-border rounded-lg p-3 text-xs space-y-1.5 max-h-36 overflow-y-auto font-mono">
+                    {selectedAttempt.proctorEvents.map((pe: any, idx: number) => (
+                      <div key={idx} className="flex items-center justify-between text-slate-700">
+                        <span className="font-bold text-rose-600">{pe.type}</span>
+                        <span className="text-slate-400">{pe.createdAt ? new Date(pe.createdAt).toLocaleTimeString() : 'Recorded'}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
 

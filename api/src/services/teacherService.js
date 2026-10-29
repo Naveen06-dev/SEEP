@@ -496,7 +496,10 @@ export async function unpublishExam(examId, userRole = 'ADMIN') {
   return { id: examId, status: 'DRAFT' };
 }
 
+import { mockAttempts } from './attemptStore.js';
+
 export async function getTeacherResults(teacherId) {
+  let dbResults = [];
   try {
     let user = await prisma.user.findUnique({ where: { id: teacherId } });
     const filterId = user ? user.id : teacherId;
@@ -524,7 +527,7 @@ export async function getTeacherResults(teacherId) {
       orderBy: { startedAt: 'desc' }
     });
 
-    return attempts.map((att) => ({
+    dbResults = attempts.map((att) => ({
       id: att.id,
       studentName: att.student ? `${att.student.firstName} ${att.student.lastName || ''}`.trim() : 'Student',
       regNo: att.student?.regNo || att.student?.id?.slice(0, 8) || 'N/A',
@@ -533,28 +536,39 @@ export async function getTeacherResults(teacherId) {
       codingScore: att.codingScore ?? 0,
       totalScore: att.totalScore ?? 0,
       status: att.status,
+      malpractice: Boolean(att.malpractice || att.status === 'MALPRACTICE'),
+      malpracticeType: att.malpracticeType,
       resultVisible: att.resultVisible,
       startedAt: att.startedAt,
-      submittedAt: att.submittedAt
+      submittedAt: att.submittedAt,
+      proctorEventsCount: att.proctorEvents?.length || 0
     }));
   } catch (err) {
-    console.warn('DB connect error in getTeacherResults, returning mock results');
-    return [
-      {
-        id: 'attempt-demo-1',
-        studentName: 'Alice Smith',
-        regNo: 'CS2026001',
-        examTitle: 'Data Structures & Algorithms Final',
-        mcqScore: 10,
-        codingScore: 15,
-        totalScore: 25,
-        status: 'SUBMITTED',
-        resultVisible: true,
-        startedAt: new Date(Date.now() - 3600000),
-        submittedAt: new Date()
-      }
-    ];
+    console.warn('DB connect error in getTeacherResults, using in-memory store');
   }
+
+  // Merge any in-memory mock attempts not already in dbResults
+  const dbIds = new Set(dbResults.map((r) => r.id));
+  const fallbackList = Array.from(mockAttempts.values())
+    .filter((a) => !dbIds.has(a.id))
+    .map((att) => ({
+      id: att.id,
+      studentName: att.studentName || (att.student ? `${att.student.firstName} ${att.student.lastName || ''}`.trim() : 'Student'),
+      regNo: att.regNo || att.student?.regNo || 'CS2026001',
+      examTitle: att.examTitle || att.exam?.title || 'Examination',
+      mcqScore: att.mcqScore ?? 0,
+      codingScore: att.codingScore ?? 0,
+      totalScore: att.totalScore ?? 0,
+      status: att.status,
+      malpractice: Boolean(att.malpractice || att.status === 'MALPRACTICE'),
+      malpracticeType: att.malpracticeType,
+      resultVisible: att.resultVisible !== false,
+      startedAt: att.startedAt || new Date(),
+      submittedAt: att.submittedAt || new Date(),
+      proctorEventsCount: att.proctorEvents?.length || 0
+    }));
+
+  return [...dbResults, ...fallbackList];
 }
 
 export async function getAttemptDetails(attemptId) {
@@ -571,19 +585,191 @@ export async function getAttemptDetails(attemptId) {
         },
         mcqAnswers: true,
         codingSubmissions: { include: { codingQuestion: true } },
-        proctorEvents: true
+        proctorEvents: { orderBy: { createdAt: 'desc' } }
       }
     });
-    if (attempt) return attempt;
+
+    if (attempt) {
+      const mcqs = attempt.exam?.mcqQuestions || [];
+      const answersMap = new Map((attempt.mcqAnswers || []).map((a) => [a.mcqQuestionId, a.selectedIndex]));
+
+      const questionBreakdown = mcqs.map((q, idx) => {
+        const selected = answersMap.get(q.id);
+        const options = Array.isArray(q.options)
+          ? q.options
+          : typeof q.options === 'string'
+          ? JSON.parse(q.options)
+          : [];
+        const isPassed = selected !== undefined && selected !== null && selected === q.correctIndex;
+        return {
+          id: q.id,
+          sequence: idx + 1,
+          question: q.text,
+          options,
+          selectedIndex: selected ?? null,
+          selectedAnswer: selected !== undefined && options[selected] ? options[selected] : 'Not Answered',
+          correctIndex: q.correctIndex,
+          correctAnswer: options[q.correctIndex] || '',
+          marks: q.marks || 1,
+          score: isPassed ? (q.marks || 1) : 0,
+          passed: isPassed
+        };
+      });
+
+      const codingQuestions = attempt.exam?.codingQuestions || [];
+      const codingBreakdown = codingQuestions.map((cq) => {
+        const subs = (attempt.codingSubmissions || []).filter((s) => s.codingQuestionId === cq.id);
+        let bestSub = null;
+        for (const s of subs) {
+          if (!bestSub || s.score > bestSub.score) {
+            bestSub = s;
+          }
+        }
+        return {
+          id: cq.id,
+          title: cq.title,
+          maxMarks: cq.marks || 15,
+          score: bestSub ? bestSub.score : 0,
+          status: bestSub ? bestSub.status : 'NOT_ATTEMPTED',
+          passedCases: bestSub ? bestSub.passedCases : 0,
+          totalCases: bestSub ? bestSub.totalCases : (cq.testCases?.length || 0),
+          language: bestSub?.language || null,
+          sourceCode: bestSub?.sourceCode || null
+        };
+      });
+
+      const maxMcqMarks = mcqs.reduce((s, q) => s + (q.marks || 1), 0);
+      const maxCodingMarks = codingQuestions.reduce((s, q) => s + (q.marks || 15), 0);
+      const totalMarks = (attempt.exam?.totalMarks && attempt.exam.totalMarks > 0) ? attempt.exam.totalMarks : (maxMcqMarks + maxCodingMarks);
+
+      return {
+        id: attempt.id,
+        examId: attempt.examId,
+        examTitle: attempt.exam?.title || 'Exam',
+        subject: attempt.exam?.subject || 'Assessment',
+        department: attempt.student?.department || attempt.exam?.department || 'Computer Science',
+        studentId: attempt.studentId,
+        studentName: attempt.student ? `${attempt.student.firstName} ${attempt.student.lastName || ''}`.trim() : 'Student',
+        email: attempt.student?.email || 'N/A',
+        regNo: attempt.student?.regNo || 'N/A',
+        status: attempt.status,
+        malpractice: Boolean(attempt.malpractice || attempt.status === 'MALPRACTICE'),
+        malpracticeType: attempt.malpracticeType,
+        mcqScore: attempt.mcqScore ?? 0,
+        maxMcqMarks,
+        codingScore: attempt.codingScore ?? 0,
+        maxCodingMarks,
+        totalScore: attempt.totalScore ?? 0,
+        totalMarks,
+        percentage: totalMarks > 0 ? Math.round(((attempt.totalScore ?? 0) / totalMarks) * 100) : 0,
+        resultVisible: Boolean(attempt.resultVisible),
+        startedAt: attempt.startedAt,
+        submittedAt: attempt.submittedAt,
+        questionBreakdown,
+        codingBreakdown,
+        proctorEvents: (attempt.proctorEvents || []).map((pe) => ({
+          id: pe.id,
+          type: pe.type,
+          metadata: pe.metadata,
+          createdAt: pe.createdAt
+        }))
+      };
+    }
   } catch (err) {
-    console.warn('DB connect error in getAttemptDetails');
+    console.warn('DB connect error in getAttemptDetails:', err.message);
   }
+
+  // Fallback to in-memory store
+  const mockAtt = Array.from(mockAttempts.values()).find((a) => a.id === attemptId) || mockAttempts.get(attemptId);
+  if (mockAtt) {
+    const demoExam = MOCK_EXAMS[0];
+    const mcqs = demoExam.mcqQuestions || [];
+    const questionBreakdown = mcqs.map((q, idx) => {
+      const selected = mockAtt.mcqAnswers ? mockAtt.mcqAnswers[q.id] : 1;
+      const isPassed = selected === q.correctIndex;
+      return {
+        id: q.id,
+        sequence: idx + 1,
+        question: q.text,
+        options: q.options,
+        selectedIndex: selected,
+        selectedAnswer: q.options[selected] || 'Not Answered',
+        correctIndex: q.correctIndex,
+        correctAnswer: q.options[q.correctIndex] || '',
+        marks: q.marks || 5,
+        score: isPassed ? (q.marks || 5) : 0,
+        passed: isPassed
+      };
+    });
+
+    return {
+      id: mockAtt.id,
+      examId: mockAtt.examId || demoExam.id,
+      examTitle: mockAtt.examTitle || demoExam.title,
+      subject: demoExam.subject,
+      department: mockAtt.department || 'Computer Science & Engineering',
+      studentId: mockAtt.studentId || 'std-1',
+      studentName: mockAtt.studentName || 'Student Candidate',
+      email: mockAtt.email || 'student@seep.com',
+      regNo: mockAtt.regNo || 'CS2026001',
+      status: mockAtt.status || 'SUBMITTED',
+      malpractice: Boolean(mockAtt.malpractice || mockAtt.status === 'MALPRACTICE'),
+      malpracticeType: mockAtt.malpracticeType || (mockAtt.status === 'MALPRACTICE' ? 'PROCTORING_VIOLATION' : null),
+      mcqScore: mockAtt.mcqScore ?? 5,
+      maxMcqMarks: mockAtt.maxMcqMarks ?? 5,
+      codingScore: mockAtt.codingScore ?? 0,
+      maxCodingMarks: mockAtt.maxCodingMarks ?? 15,
+      totalScore: mockAtt.totalScore ?? 5,
+      totalMarks: mockAtt.totalMarks ?? 20,
+      percentage: mockAtt.percentage ?? 25,
+      resultVisible: mockAtt.resultVisible !== false,
+      startedAt: mockAtt.startedAt || new Date(),
+      submittedAt: mockAtt.submittedAt || new Date(),
+      questionBreakdown,
+      codingBreakdown: [
+        {
+          id: 'coding-1',
+          title: 'Two Sum Problem',
+          maxMarks: 15,
+          score: mockAtt.codingScore ?? 0,
+          status: (mockAtt.codingScore && mockAtt.codingScore > 0) ? 'ACCEPTED' : (mockAtt.status === 'MALPRACTICE' ? 'TERMINATED' : 'NOT_ATTEMPTED'),
+          passedCases: mockAtt.codingScore ? 1 : 0,
+          totalCases: 1,
+          language: 'javascript'
+        }
+      ],
+      proctorEvents: mockAtt.proctorEvents || (mockAtt.malpractice ? [
+        { id: 'pe-demo', type: mockAtt.malpracticeType || 'TAB_SWITCH', metadata: { count: 1 }, createdAt: mockAtt.submittedAt || new Date() }
+      ] : [])
+    };
+  }
+
+  // Generic fallback if not found anywhere
   return {
     id: attemptId,
-    student: { firstName: 'Alice', lastName: 'Smith', email: 'student@seep.com', regNo: 'CS2026001' },
-    exam: MOCK_EXAMS[0],
-    mcqAnswers: [],
-    codingSubmissions: [],
+    examId: 'exam-demo-1',
+    examTitle: 'Assessment Test',
+    subject: 'Computer Science',
+    department: 'Computer Science & Engineering',
+    studentId: 'student-1',
+    studentName: 'Alice Smith',
+    email: 'alice@seep.com',
+    regNo: 'CS2026001',
+    status: 'SUBMITTED',
+    malpractice: false,
+    malpracticeType: null,
+    mcqScore: 10,
+    maxMcqMarks: 10,
+    codingScore: 15,
+    maxCodingMarks: 15,
+    totalScore: 25,
+    totalMarks: 25,
+    percentage: 100,
+    resultVisible: true,
+    startedAt: new Date(Date.now() - 3600000),
+    submittedAt: new Date(),
+    questionBreakdown: [],
+    codingBreakdown: [],
     proctorEvents: []
   };
 }
@@ -595,7 +781,12 @@ export async function setResultVisibility(attemptId, visible) {
       data: { resultVisible: Boolean(visible) }
     });
   } catch (err) {
+    const att = mockAttempts.get(attemptId) || Array.from(mockAttempts.values()).find((a) => a.id === attemptId);
+    if (att) {
+      att.resultVisible = Boolean(visible);
+    }
     return { id: attemptId, resultVisible: Boolean(visible) };
   }
 }
+
 

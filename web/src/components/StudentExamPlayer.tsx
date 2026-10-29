@@ -78,6 +78,9 @@ export function StudentExamPlayer() {
     codingScore: number;
     maxCodingMarks: number;
     percentage: number;
+    malpractice?: boolean;
+    malpracticeType?: string;
+    violationText?: string;
     mcqBreakdown?: {
       total: number;
       answered: number;
@@ -101,6 +104,10 @@ export function StudentExamPlayer() {
       }>;
     };
   } | null>(null);
+
+  const [retestReason, setRetestReason] = useState('');
+  const [retestSubmitted, setRetestSubmitted] = useState(false);
+  const [submittingRetest, setSubmittingRetest] = useState(false);
 
   // Proctoring Tab Switch State
   const [tabSwitchCount, setTabSwitchCount] = useState(0);
@@ -468,20 +475,6 @@ export function StudentExamPlayer() {
     const userStr = localStorage.getItem('seep_user');
     const u = userStr ? JSON.parse(userStr) : {};
 
-    // Notify backend proctoring service (which alerts both Admin & Teacher)
-    if (attemptId) {
-      await api(`/api/attempts/${attemptId}/proctor`, {
-        method: 'POST',
-        body: JSON.stringify({
-          studentId: u.id || 'student-1',
-          studentName: `${u.firstName || 'Student'} ${u.lastName || ''}`.trim(),
-          regNo: u.regNo || 'CS2026001',
-          examTitle: exam?.title || 'Examination',
-          type: reason
-        })
-      }).catch(() => {});
-    }
-
     const violationMessageMap: Record<string, string> = {
       WINDOWS_G_KEY: 'Windows key / Windows+G pressed (Malpractice)',
       WINDOWS_KEY: 'Windows key pressed (Malpractice)',
@@ -489,13 +482,95 @@ export function StudentExamPlayer() {
       ESC_KEY: 'Esc key pressed',
       FULLSCREEN_EXIT: 'Exited fullscreen mode',
       TAB_SWITCH: 'Tab switch detected',
-      AI_EXTENSION_HOTKEY: 'Unauthorized AI Assistant shortcut triggered (Ctrl+M / Cmd+M)'
+      AI_EXTENSION_HOTKEY: 'Unauthorized AI Assistant shortcut triggered (Ctrl+M / Cmd+M)',
+      WINDOW_BLUR: 'Window focus lost / unauthorized background activity'
     };
 
-    const violationText = violationMessageMap[reason] || 'Proctoring violation detected';
+    const violationText = violationMessageMap[reason] || 'Proctoring integrity violation detected';
 
-    alert(`⛔ EXAM TERMINATED DUE TO PROCTORING VIOLATION!\nViolation: ${violationText}.\nYour session is locked. A malpractice report has been sent to the Admin & Teacher.`);
-    navigate('/student/dashboard');
+    // Calculate score earned prior to termination
+    const mcqs = exam?.mcqQuestions || [];
+    const mcqAnswered = Object.keys(mcqAnswers).length;
+    let localMcqScore = 0;
+    let localMaxMcq = 0;
+    let localCorrect = 0;
+    for (const q of mcqs) {
+      const m = q.marks || 1;
+      localMaxMcq += m;
+      if (mcqAnswers[q.id] !== undefined && mcqAnswers[q.id] === q.correctIndex) {
+        localMcqScore += m;
+        localCorrect++;
+      }
+    }
+    const localMaxCoding = (exam?.codingQuestions || []).reduce((acc, q) => acc + (q.marks || 15), 0);
+    const totalMarks = localMaxMcq + localMaxCoding;
+
+    let res: any = null;
+    try {
+      if (attemptId && !attemptId.startsWith('demo-')) {
+        res = await api<any>(`/api/attempts/${attemptId}/submit`, {
+          method: 'POST',
+          body: JSON.stringify({
+            mcqAnswers,
+            malpractice: true,
+            malpracticeType: reason,
+            malpracticeReason: violationText,
+            studentId: u.id || 'student-1',
+            studentName: `${u.firstName || 'Student'} ${u.lastName || ''}`.trim(),
+            regNo: u.regNo || 'CS2026001',
+            examTitle: exam?.title || 'Examination'
+          })
+        }).catch(() => null);
+      }
+    } catch (e) {
+      console.warn('Submit malpractice error:', e);
+    }
+
+    // Also record proctor event with backend
+    if (attemptId) {
+      api(`/api/attempts/${attemptId}/proctor`, {
+        method: 'POST',
+        body: JSON.stringify({
+          studentId: u.id || 'student-1',
+          studentName: `${u.firstName || 'Student'} ${u.lastName || ''}`.trim(),
+          regNo: u.regNo || 'CS2026001',
+          examTitle: exam?.title || 'Examination',
+          type: reason,
+          mcqAnswers
+        })
+      }).catch(() => {});
+    }
+
+    setExamResult({
+      status: 'MALPRACTICE',
+      malpractice: true,
+      malpracticeType: reason,
+      violationText,
+      totalScore: res?.totalScore ?? localMcqScore,
+      totalMarks: res?.totalMarks ?? totalMarks,
+      mcqScore: res?.mcqScore ?? localMcqScore,
+      maxMcqMarks: res?.maxMcqMarks ?? localMaxMcq,
+      codingScore: res?.codingScore ?? 0,
+      maxCodingMarks: res?.maxCodingMarks ?? localMaxCoding,
+      percentage: res?.percentage ?? (totalMarks > 0 ? Math.round((localMcqScore / totalMarks) * 100) : 0),
+      mcqBreakdown: res?.mcqBreakdown || {
+        total: mcqs.length,
+        answered: mcqAnswered,
+        correct: localCorrect,
+        score: localMcqScore,
+        maxMarks: localMaxMcq
+      },
+      codingBreakdown: res?.codingBreakdown || {
+        total: (exam?.codingQuestions || []).length,
+        attempted: 0,
+        score: 0,
+        maxMarks: localMaxCoding,
+        details: []
+      }
+    });
+
+    setIsSubmitted(true);
+    setSubmitCountdown(null);
   };
 
   /* ── 4. Exam Timer ── */
@@ -622,12 +697,39 @@ export function StudentExamPlayer() {
       navigate('/student/dashboard');
     };
 
-    const isPassed = (examResult?.percentage ?? 0) >= 40;
+    const isMalpractice = Boolean(examResult?.malpractice || examResult?.status === 'MALPRACTICE');
+    const isPassed = !isMalpractice && (examResult?.percentage ?? 0) >= 40;
+
+    const handleRetestSubmit = async () => {
+      if (!retestReason.trim()) return;
+      setSubmittingRetest(true);
+      try {
+        const userStr = localStorage.getItem('seep_user');
+        const u = userStr ? JSON.parse(userStr) : {};
+        await api('/api/attempts/retest-request', {
+          method: 'POST',
+          body: JSON.stringify({
+            examId: exam?.id || examId,
+            studentId: u.id || 'student-1',
+            studentName: `${u.firstName || 'Student'} ${u.lastName || ''}`.trim(),
+            regNo: u.regNo || 'CS2026001',
+            reason: retestReason
+          })
+        });
+        setRetestSubmitted(true);
+      } catch (e) {
+        alert('Failed to submit retest request. Please try again.');
+      } finally {
+        setSubmittingRetest(false);
+      }
+    };
 
     return (
       <div style={{
         minHeight: '100vh',
-        background: 'radial-gradient(circle at 50% 0%, #f0fdf4 0%, #f8fafc 75%)',
+        background: isMalpractice 
+          ? 'radial-gradient(circle at 50% 0%, #fff1f2 0%, #f8fafc 75%)' 
+          : 'radial-gradient(circle at 50% 0%, #f0fdf4 0%, #f8fafc 75%)',
         display: 'grid',
         placeItems: 'center',
         fontFamily: "'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif",
@@ -638,10 +740,12 @@ export function StudentExamPlayer() {
           maxWidth: '680px',
           width: '100%',
           background: '#ffffff',
-          border: '1px solid #e2e8f0',
+          border: isMalpractice ? '1px solid #fecaca' : '1px solid #e2e8f0',
           borderRadius: '24px',
           padding: '2.5rem 2.25rem',
-          boxShadow: '0 20px 40px -15px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.02)'
+          boxShadow: isMalpractice 
+            ? '0 20px 40px -15px rgba(220, 38, 38, 0.12), 0 0 0 1px rgba(220, 38, 38, 0.05)'
+            : '0 20px 40px -15px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.02)'
         }}>
           {/* Header */}
           <div style={{ textAlign: 'center', marginBottom: '1.75rem' }}>
@@ -649,21 +753,23 @@ export function StudentExamPlayer() {
               width: '72px',
               height: '72px',
               borderRadius: '50%',
-              background: '#ecfdf5',
-              border: '2px solid #a7f3d0',
+              background: isMalpractice ? '#fee2e2' : '#ecfdf5',
+              border: isMalpractice ? '2px solid #fecaca' : '2px solid #a7f3d0',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               fontSize: '2.25rem',
               margin: '0 auto 1rem',
-              boxShadow: '0 8px 24px rgba(16, 185, 129, 0.15)'
+              boxShadow: isMalpractice 
+                ? '0 8px 24px rgba(239, 68, 68, 0.2)' 
+                : '0 8px 24px rgba(16, 185, 129, 0.15)'
             }}>
-              ✅
+              {isMalpractice ? '⛔' : '✅'}
             </div>
             <span style={{
-              background: '#ecfdf5',
-              color: '#059669',
-              border: '1px solid #a7f3d0',
+              background: isMalpractice ? '#fee2e2' : '#ecfdf5',
+              color: isMalpractice ? '#dc2626' : '#059669',
+              border: isMalpractice ? '1px solid #fecaca' : '1px solid #a7f3d0',
               padding: '0.3rem 0.85rem',
               borderRadius: '20px',
               fontSize: '0.8rem',
@@ -671,20 +777,60 @@ export function StudentExamPlayer() {
               textTransform: 'uppercase',
               letterSpacing: '0.04em'
             }}>
-              Official Assessment Result
+              {isMalpractice ? 'Proctoring Security Incident • Terminated' : 'Official Assessment Result'}
             </span>
-            <h2 style={{ fontSize: '1.85rem', fontWeight: 800, color: '#0f172a', margin: '0.65rem 0 0.35rem', letterSpacing: '-0.02em' }}>
-              Test Submitted Successfully!
+            <h2 style={{ fontSize: '1.85rem', fontWeight: 800, color: isMalpractice ? '#b91c1c' : '#0f172a', margin: '0.65rem 0 0.35rem', letterSpacing: '-0.02em' }}>
+              {isMalpractice ? 'Exam Terminated: Malpractice Detected' : 'Test Submitted Successfully!'}
             </h2>
             <p style={{ color: '#64748b', fontSize: '0.94rem', margin: 0 }}>
               {exam?.title || 'Examination'} &bull; {exam?.subject || 'Assessment'}
             </p>
           </div>
 
+          {/* Malpractice Detailed Banner */}
+          {isMalpractice && (
+            <div style={{
+              background: '#fef2f2',
+              border: '1px solid #fca5a5',
+              borderRadius: '14px',
+              padding: '1.15rem 1.35rem',
+              marginBottom: '1.5rem',
+              fontSize: '0.9rem',
+              color: '#991b1b'
+            }}>
+              <div style={{ fontWeight: 800, fontSize: '0.95rem', marginBottom: '0.35rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span>⚠️ Violation:</span>
+                <span style={{ color: '#b91c1c' }}>{examResult?.violationText || examResult?.malpracticeType || 'Proctoring Rule Violation'}</span>
+              </div>
+              <p style={{ margin: 0, fontSize: '0.84rem', color: '#7f1d1d', lineHeight: 1.5 }}>
+                Your assessment session was locked and terminated by the proctoring engine. The full incident log along with your score earned prior to termination has been officially recorded and transmitted to your Course Teacher and Institution Administrator.
+              </p>
+            </div>
+          )}
+
+          {/* Success Transmission Note */}
+          {!isMalpractice && (
+            <div style={{
+              background: '#f0fdf4',
+              border: '1px solid #bbf7d0',
+              borderRadius: '12px',
+              padding: '0.85rem 1.15rem',
+              marginBottom: '1.5rem',
+              fontSize: '0.85rem',
+              color: '#166534',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem'
+            }}>
+              <span>✓</span>
+              <span>Your assessment answers and score have been successfully submitted and delivered to your Teacher and Administrator for evaluation.</span>
+            </div>
+          )}
+
           {/* Primary Scorecard Banner */}
           <div style={{
-            background: 'linear-gradient(135deg, #f8fafc 0%, #eff6ff 100%)',
-            border: '1px solid #bfdbfe',
+            background: isMalpractice ? 'linear-gradient(135deg, #fff5f5 0%, #fef2f2 100%)' : 'linear-gradient(135deg, #f8fafc 0%, #eff6ff 100%)',
+            border: isMalpractice ? '1px solid #fecaca' : '1px solid #bfdbfe',
             borderRadius: '16px',
             padding: '1.5rem 1.75rem',
             display: 'flex',
@@ -695,27 +841,30 @@ export function StudentExamPlayer() {
             gap: '1rem'
           }}>
             <div>
-              <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#2563eb', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.25rem' }}>
-                Total Score Earned
+              <div style={{ fontSize: '0.8rem', fontWeight: 700, color: isMalpractice ? '#dc2626' : '#2563eb', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.25rem' }}>
+                {isMalpractice ? 'Score Earned Prior to Termination' : 'Total Score Earned'}
               </div>
               <div style={{ fontSize: '2.5rem', fontWeight: 900, color: '#0f172a', lineHeight: 1 }}>
                 {examResult?.totalScore ?? 0}
                 <span style={{ fontSize: '1.2rem', color: '#64748b', fontWeight: 600 }}> / {examResult?.totalMarks ?? 0}</span>
               </div>
               <div style={{ fontSize: '0.82rem', color: '#64748b', marginTop: '0.4rem' }}>
-                Result status: <strong style={{ color: isPassed ? '#059669' : '#d97706' }}>{isPassed ? '✓ Passed Examination' : 'Completed'}</strong>
+                Result status:{' '}
+                <strong style={{ color: isMalpractice ? '#dc2626' : (isPassed ? '#059669' : '#d97706') }}>
+                  {isMalpractice ? '⛔ Terminated (Malpractice Recorded)' : (isPassed ? '✓ Passed Examination' : 'Completed')}
+                </strong>
               </div>
             </div>
 
             <div style={{
               background: '#ffffff',
-              border: '1px solid #e2e8f0',
+              border: isMalpractice ? '1px solid #fecaca' : '1px solid #e2e8f0',
               borderRadius: '14px',
               padding: '1rem 1.5rem',
               textAlign: 'center',
               boxShadow: '0 2px 8px rgba(0,0,0,0.04)'
             }}>
-              <div style={{ fontSize: '2.2rem', fontWeight: 900, color: '#2563eb', lineHeight: 1 }}>
+              <div style={{ fontSize: '2.2rem', fontWeight: 900, color: isMalpractice ? '#dc2626' : '#2563eb', lineHeight: 1 }}>
                 {examResult?.percentage ?? 0}%
               </div>
               <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase', marginTop: '0.3rem' }}>
@@ -767,13 +916,82 @@ export function StudentExamPlayer() {
             </div>
           </div>
 
+          {/* Retest Request Section for Malpractice */}
+          {isMalpractice && (
+            <div style={{
+              background: '#f8fafc',
+              border: '1px solid #e2e8f0',
+              borderRadius: '16px',
+              padding: '1.35rem',
+              marginBottom: '1.5rem'
+            }}>
+              <div style={{ fontWeight: 800, fontSize: '0.92rem', color: '#0f172a', marginBottom: '0.35rem' }}>
+                📩 Appeal & Request Retest
+              </div>
+              <p style={{ fontSize: '0.82rem', color: '#64748b', margin: '0 0 0.85rem' }}>
+                If this violation was caused by an accidental action (such as an accidental trackpad swipe or system popup), you can submit an appeal. It will be sent to the Administrator and Course Teacher for review.
+              </p>
+
+              {retestSubmitted ? (
+                <div style={{
+                  background: '#ecfdf5',
+                  border: '1px solid #a7f3d0',
+                  color: '#065f46',
+                  borderRadius: '10px',
+                  padding: '0.75rem 1rem',
+                  fontSize: '0.85rem',
+                  fontWeight: 600
+                }}>
+                  ✓ Retest request submitted successfully! Your appeal has been forwarded to the Administrator and Course Teacher for review.
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+                  <textarea
+                    value={retestReason}
+                    onChange={(e) => setRetestReason(e.target.value)}
+                    placeholder="Describe what occurred (e.g., accidental key combination, notification overlay, browser crash)..."
+                    rows={2}
+                    style={{
+                      width: '100%',
+                      padding: '0.65rem 0.85rem',
+                      borderRadius: '8px',
+                      border: '1px solid #cbd5e1',
+                      fontSize: '0.85rem',
+                      fontFamily: 'inherit',
+                      resize: 'none',
+                      boxSizing: 'border-box'
+                    }}
+                  />
+                  <button
+                    onClick={handleRetestSubmit}
+                    disabled={submittingRetest || !retestReason.trim()}
+                    style={{
+                      alignSelf: 'flex-start',
+                      background: retestReason.trim() ? '#2563eb' : '#94a3b8',
+                      color: '#ffffff',
+                      border: 'none',
+                      padding: '0.55rem 1.15rem',
+                      borderRadius: '8px',
+                      fontWeight: 600,
+                      fontSize: '0.82rem',
+                      cursor: retestReason.trim() ? 'pointer' : 'not-allowed',
+                      transition: 'background 0.15s ease'
+                    }}
+                  >
+                    {submittingRetest ? 'Submitting Appeal...' : 'Submit Appeal to Admin & Teacher'}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Action CTA & Navigation */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
             <button
               onClick={handleReturnToDashboard}
               style={{
                 width: '100%',
-                background: 'linear-gradient(135deg, #10b981, #059669)',
+                background: isMalpractice ? 'linear-gradient(135deg, #475569, #334155)' : 'linear-gradient(135deg, #10b981, #059669)',
                 color: '#ffffff',
                 border: 'none',
                 padding: '0.95rem 2rem',
@@ -781,7 +999,7 @@ export function StudentExamPlayer() {
                 fontWeight: 700,
                 fontSize: '1rem',
                 cursor: 'pointer',
-                boxShadow: '0 4px 14px rgba(16, 185, 129, 0.3)',
+                boxShadow: isMalpractice ? '0 4px 14px rgba(51, 65, 85, 0.25)' : '0 4px 14px rgba(16, 185, 129, 0.3)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
